@@ -1,0 +1,48 @@
+name: ai-workhorse
+
+services:
+  db:
+    # ARM64-kompatibles pgvector Image für Hetzner CAX21
+    image: pgvector/pgvector:pg16
+    container_name: ai-workhorse-db
+    environment:
+      POSTGRES_USER: workhorse
+      POSTGRES_PASSWORD: workhorse_secure_pw
+      POSTGRES_DB: workhorse_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  redis:
+    # Leichtgewichtiges Alpine-Image für Token-Bucket Rate Limiting
+    image: redis:7-alpine
+    container_name: ai-workhorse-redis
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  api:
+    # FastAPI Gehirn - läuft zwingend unter 1000:1000 für saubere Upload-Permissions
+    image: python:3.11-slim
+    container_name: ai-workhorse-api
+    user: "1000:1000"
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+      - ./uploads:/app/uploads
+    # Hot-Reload für Vibe-Coding
+    command: bash -c "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
