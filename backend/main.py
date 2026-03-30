@@ -244,8 +244,10 @@ async def upload_pdf(file: UploadFile = File(...)):
         
     # PDF-Parsing mit pdfplumber (ARM64-kompatibel, exzellente Layout-Erkennung)
     extracted_text = ""
+    page_count = 0
     try:
         with pdfplumber.open(file_path) as pdf:
+            page_count = len(pdf.pages)
             for page in pdf.pages:
                 text = page.extract_text()
                 if text:
@@ -258,6 +260,6 @@ async def upload_pdf(file: UploadFile = File(...)):
     return {
         "file_id": file_id, 
         "status": "success", 
-        "pages_extracted": len(pdf.pages),
+        "pages_extracted": page_count,
         "preview": extracted_text[:200] + "..." if extracted_text else ""
     }
