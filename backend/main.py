@@ -6,6 +6,8 @@ import re
 import json
 import time
 import hashlib
+import logging
+from datetime import datetime
 import pdfplumber
 import redis.asyncio as redis
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request, Depends
@@ -14,6 +16,28 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 app = FastAPI(title="AI-Workhorse v8.1 API")
+
+# --- Woche 9-10: Strukturiertes JSON-Logging ---
+LOG_DIR = os.path.abspath("logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "workhorse.jsonl")
+
+class JSONFormatter(logging.Formatter):
+    def format(self, record):
+        log_obj = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "level": record.levelname,
+            "message": record.getMessage(),
+        }
+        if hasattr(record, "req_info"):
+            log_obj.update(record.req_info)
+        return json.dumps(log_obj)
+
+logger = logging.getLogger("ai_workhorse")
+logger.setLevel(logging.INFO)
+fh = logging.FileHandler(LOG_FILE)
+fh.setFormatter(JSONFormatter())
+logger.addHandler(fh)
 
 # HITL State (Woche 7-8)
 app.state.approval_events = {}
@@ -75,6 +99,7 @@ async def check_rate_limit(request: Request):
         tokens -= 1
         await redis_client.hset(key, mapping={"tokens": tokens, "last_update": now})
     else:
+        logger.warning("Rate limit exceeded", extra={"req_info": {"user_id": user_id, "event": "rate_limit_exceeded"}})
         raise HTTPException(status_code=429, detail="Rate limit exceeded (10 Req/Min). Token bucket empty.")
 
 def apply_prompt_injection_defense(messages: List[Message]) -> List[dict]:
@@ -95,6 +120,7 @@ def apply_prompt_injection_defense(messages: List[Message]) -> List[dict]:
             # Stufe 3: Regex-Fallback für bekannte Pattern
             injection_pattern = r"(?i)(ignore previous|disregard|system prompt|forget all|bypassing)"
             if re.search(injection_pattern, sanitized_text):
+                logger.warning("Prompt Injection detected", extra={"req_info": {"event": "security_violation", "pattern": injection_pattern, "content": sanitized_text}})
                 raise HTTPException(status_code=400, detail="Security Violation: Prompt Injection Pattern detected.")
             
             secure_messages.append({"role": "user", "content": sanitized_text})
@@ -118,10 +144,13 @@ async def approve_tool(execution_id: str, req: ToolApprovalRequest):
     return {"status": "success", "approved": req.approved}
 
 @app.post("/v1/chat/completions", dependencies=[Depends(check_rate_limit)])
-async def chat_completions_proxy(request: ChatCompletionRequest):
+async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
     """
     Proxy-Endpunkt für LLM-Anfragen inkl. SSE-Heartbeat und Caching.
     """
+    user_ip = req.client.host if req.client else "unknown"
+    logger.info("Chat completion requested", extra={"req_info": {"event": "chat_request", "user_ip": user_ip, "is_rag": len(request.file_ids) > 0}})
+    
     secure_messages = apply_prompt_injection_defense(request.messages)
     
     # --- Woche 5-6: RAG-Aware SHA256 Caching ---
@@ -204,11 +233,14 @@ async def upload_pdf(file: UploadFile = File(...)):
     # Path-Traversal-Schutz (Blueprint Woche 3-4)
     file_path = os.path.abspath(os.path.join(UPLOAD_DIR, safe_filename))
     if not file_path.startswith(UPLOAD_DIR):
+        logger.critical("Path traversal attempt", extra={"req_info": {"event": "path_traversal", "filename": safe_filename}})
         raise HTTPException(status_code=403, detail="Security Violation: Path traversal attempt detected!")
         
     # Datei speichern
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
+        
+    logger.info("File uploaded successfully", extra={"req_info": {"event": "file_upload", "file_id": file_id}})
         
     # PDF-Parsing mit pdfplumber (ARM64-kompatibel, exzellente Layout-Erkennung)
     extracted_text = ""
