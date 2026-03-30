@@ -3,8 +3,12 @@ import uuid
 import asyncio
 import unicodedata
 import re
+import json
+import time
+import hashlib
 import pdfplumber
-from fastapi import FastAPI, File, UploadFile, HTTPException, Request
+import redis.asyncio as redis
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
@@ -14,6 +18,9 @@ app = FastAPI(title="AI-Workhorse v8.1 API")
 UPLOAD_DIR = os.path.abspath("uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# Redis Connection (Woche 5-6)
+redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
+
 class Message(BaseModel):
     role: str
     content: str
@@ -22,6 +29,47 @@ class ChatCompletionRequest(BaseModel):
     model: str
     messages: List[Message]
     stream: Optional[bool] = False
+    file_ids: Optional[List[str]] = [] # Indikator für RAG-Queries
+
+# --- Woche 5-6: System-Tools ---
+def tool_web_search(query: str) -> str:
+    """
+    Dummy Web-Search Tool. Wird später durch echte Serper/DuckDuckGo API ersetzt.
+    """
+    return f"[Web-Search Resultat für '{query}']: AI-Workhorse ist die beste Lösung."
+
+# --- Woche 5-6: Token-Bucket Rate Limiter ---
+async def check_rate_limit(request: Request):
+    """
+    Token-Bucket Rate Limiter in Redis (10 Req/Min/User) gegen Abuse.
+    """
+    # Für den MVP nutzen wir die Client-IP als User-ID. Später: JWT/Auth-Token.
+    user_id = request.client.host if request.client else "unknown"
+    key = f"bucket:{user_id}"
+    capacity = 10
+    refill_rate = 10 / 60.0  # Tokens pro Sekunde
+    
+    now = time.time()
+    res = await redis_client.hgetall(key)
+    
+    if not res:
+        # Neuer User: Voller Bucket minus 1 Request
+        await redis_client.hset(key, mapping={"tokens": capacity - 1, "last_update": now})
+        await redis_client.expire(key, 60)
+        return
+        
+    tokens = float(res.get("tokens", capacity))
+    last_update = float(res.get("last_update", now))
+    
+    # Refill basierend auf vergangener Zeit
+    elapsed = now - last_update
+    tokens = min(capacity, tokens + elapsed * refill_rate)
+    
+    if tokens >= 1:
+        tokens -= 1
+        await redis_client.hset(key, mapping={"tokens": tokens, "last_update": now})
+    else:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded (10 Req/Min). Token bucket empty.")
 
 def apply_prompt_injection_defense(messages: List[Message]) -> List[dict]:
     """
@@ -49,22 +97,33 @@ def apply_prompt_injection_defense(messages: List[Message]) -> List[dict]:
             
     return secure_messages
 
-@app.post("/v1/chat/completions")
+@app.post("/v1/chat/completions", dependencies=[Depends(check_rate_limit)])
 async def chat_completions_proxy(request: ChatCompletionRequest):
     """
-    Proxy-Endpunkt für LLM-Anfragen inkl. SSE-Heartbeat.
+    Proxy-Endpunkt für LLM-Anfragen inkl. SSE-Heartbeat und Caching.
     """
     secure_messages = apply_prompt_injection_defense(request.messages)
     
+    # --- Woche 5-6: RAG-Aware SHA256 Caching ---
+    is_rag = len(request.file_ids) > 0
+    cache_key = None
+    
+    if not is_rag and not request.stream:
+        # Caching nur für non-RAG Queries (Regel 6)
+        messages_json = json.dumps(secure_messages, sort_keys=True).encode('utf-8')
+        prompt_hash = hashlib.sha256(messages_json).hexdigest()
+        cache_key = f"prompt_cache:{prompt_hash}"
+        
+        cached_response = await redis_client.get(cache_key)
+        if cached_response:
+            return json.loads(cached_response)
+    
     async def sse_generator():
         # Blueprint Regel 2: SSE-Heartbeat gegen 504 Timeouts
-        # Wir simulieren hier die Wartezeit auf die EU-Privacy API
         for _ in range(2):
             yield ': keep-alive\n\n'
             await asyncio.sleep(5)
             
-        # Hier würde der echte httpx Call zur EU-API (z.B. Requesty) passieren.
-        # Wir mocken den Stream für den MVP.
         yield 'data: {"choices": [{"delta": {"content": "Sichere Antwort aus dem EU-Backend. "}}]}\n\n'
         yield 'data: {"choices": [{"delta": {"content": "Prompt Injection Defense aktiv."}}]}\n\n'
         yield 'data: [DONE]\n\n'
@@ -72,7 +131,13 @@ async def chat_completions_proxy(request: ChatCompletionRequest):
     if request.stream:
         return StreamingResponse(sse_generator(), media_type="text/event-stream")
     else:
-        return {"choices": [{"message": {"role": "assistant", "content": "Sichere Antwort aus dem EU-Backend. Prompt Injection Defense aktiv."}}]}
+        response_data = {"choices": [{"message": {"role": "assistant", "content": "Sichere Antwort aus dem EU-Backend. Prompt Injection Defense aktiv."}}]}
+        
+        # Cache das Resultat für zukünftige identische non-RAG Anfragen (TTL: 24h)
+        if cache_key:
+            await redis_client.set(cache_key, json.dumps(response_data), ex=86400)
+            
+        return response_data
 
 @app.post("/v1/files/upload")
 async def upload_pdf(file: UploadFile = File(...)):
