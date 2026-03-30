@@ -15,6 +15,9 @@ from typing import List, Optional
 
 app = FastAPI(title="AI-Workhorse v8.1 API")
 
+# HITL State (Woche 7-8)
+app.state.approval_events = {}
+
 UPLOAD_DIR = os.path.abspath("uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -30,6 +33,9 @@ class ChatCompletionRequest(BaseModel):
     messages: List[Message]
     stream: Optional[bool] = False
     file_ids: Optional[List[str]] = [] # Indikator für RAG-Queries
+
+class ToolApprovalRequest(BaseModel):
+    approved: bool
 
 # --- Woche 5-6: System-Tools ---
 def tool_web_search(query: str) -> str:
@@ -97,6 +103,20 @@ def apply_prompt_injection_defense(messages: List[Message]) -> List[dict]:
             
     return secure_messages
 
+@app.post("/v1/tools/approve/{execution_id}")
+async def approve_tool(execution_id: str, req: ToolApprovalRequest):
+    """
+    HITL Endpoint: Frontend bestätigt oder lehnt eine Tool-Ausführung ab.
+    """
+    if execution_id not in app.state.approval_events:
+        raise HTTPException(status_code=404, detail="Execution ID not found or already processed.")
+    
+    event, result_container = app.state.approval_events[execution_id]
+    result_container["approved"] = req.approved
+    event.set()
+    
+    return {"status": "success", "approved": req.approved}
+
 @app.post("/v1/chat/completions", dependencies=[Depends(check_rate_limit)])
 async def chat_completions_proxy(request: ChatCompletionRequest):
     """
@@ -119,13 +139,44 @@ async def chat_completions_proxy(request: ChatCompletionRequest):
             return json.loads(cached_response)
     
     async def sse_generator():
-        # Blueprint Regel 2: SSE-Heartbeat gegen 504 Timeouts
-        for _ in range(2):
-            yield ': keep-alive\n\n'
-            await asyncio.sleep(5)
+        # --- Woche 7-8: HITL & SSE-Heartbeat ---
+        # Wir simulieren einen Tool-Call, wenn der User "search" schreibt
+        needs_tool = any("search" in msg.content.lower() for msg in request.messages if msg.role == "user")
+        
+        if needs_tool:
+            execution_id = str(uuid.uuid4())
+            event = asyncio.Event()
+            result_container = {"approved": False}
+            app.state.approval_events[execution_id] = (event, result_container)
             
-        yield 'data: {"choices": [{"delta": {"content": "Sichere Antwort aus dem EU-Backend. "}}]}\n\n'
-        yield 'data: {"choices": [{"delta": {"content": "Prompt Injection Defense aktiv."}}]}\n\n'
+            # Frontend benachrichtigen, dass eine Freigabe nötig ist
+            yield f'data: {{"choices": [{{"delta": {{"content": "\\n[SYSTEM] Tool-Freigabe erforderlich (Web-Search). Bitte Endpunkt /v1/tools/approve/{execution_id} aufrufen.\\n"}}}}]}}\n\n'
+            
+            try:
+                # Blueprint Regel 2 & 3: Warten auf Freigabe mit SSE-Heartbeats
+                wait_task = asyncio.create_task(event.wait())
+                while not wait_task.done():
+                    done, pending = await asyncio.wait([wait_task], timeout=5.0)
+                    if not done:
+                        yield ': keep-alive\n\n' # Verhindert 504 Timeout am Tablet
+                
+                # Nach Freigabe/Ablehnung
+                if result_container.get("approved"):
+                    tool_result = tool_web_search("User Query")
+                    yield f'data: {{"choices": [{{"delta": {{"content": "\\n[TOOL] {tool_result}\\n"}}}}]}}\n\n'
+                else:
+                    yield f'data: {{"choices": [{{"delta": {{"content": "\\n[TOOL] Ausführung vom User abgelehnt.\\n"}}}}]}}\n\n'
+            finally:
+                # Blueprint Regel 3: HITL Memory Leak Prävention!
+                # Zwingender Cleanup im finally-Block, sonst läuft der RAM voll.
+                app.state.approval_events.pop(execution_id, None)
+        else:
+            # Normaler Flow ohne Tool-Call
+            for _ in range(2):
+                yield ': keep-alive\n\n'
+                await asyncio.sleep(5)
+            
+        yield 'data: {"choices": [{"delta": {"content": "Sichere Antwort aus dem EU-Backend. Prompt Injection Defense aktiv."}}]}\n\n'
         yield 'data: [DONE]\n\n'
 
     if request.stream:
