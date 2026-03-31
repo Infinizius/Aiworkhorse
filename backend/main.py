@@ -78,17 +78,18 @@ _thread_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 async def lifespan(app_instance: FastAPI):
     # Startup: validate required secrets
     if not GEMINI_API_KEY:
-        raise RuntimeError(
-            "CRITICAL: GEMINI_API_KEY environment variable is required but not set. "
-            "Please configure it via .env or the Secrets panel."
+        logger.warning(
+            "GEMINI_API_KEY is not set – API calls will return dummy responses.",
+            extra={"req_info": {"event": "startup_warning", "missing": "GEMINI_API_KEY"}},
         )
-
-    genai.configure(api_key=GEMINI_API_KEY)
-    app_instance.state.gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
-    logger.info(
-        "Gemini model initialized",
-        extra={"req_info": {"event": "startup", "model": "gemini-2.0-flash-exp"}},
-    )
+        app_instance.state.gemini_model = None
+    else:
+        genai.configure(api_key=GEMINI_API_KEY)
+        app_instance.state.gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        logger.info(
+            "Gemini model initialized",
+            extra={"req_info": {"event": "startup", "model": "gemini-2.0-flash-exp"}},
+        )
 
     # Database + pgvector setup
     try:
@@ -158,6 +159,18 @@ class ChatCompletionRequest(BaseModel):
 
 class ToolApprovalRequest(BaseModel):
     approved: bool
+
+
+# ─── Response-Nachrichten ─────────────────────────────────────────────────────
+
+_MSG_MISSING_API_KEY = (
+    "Hallo! Ich bin AI-Workhorse. Der GEMINI_API_KEY ist nicht konfiguriert – "
+    "bitte trage ihn in der .env-Datei ein."
+)
+_MSG_API_ERROR = (
+    "Es tut mir leid, ich konnte deine Anfrage momentan nicht verarbeiten. "
+    "Bitte versuche es erneut."
+)
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -307,6 +320,7 @@ async def tool_web_search(query: str) -> str:
 async def check_rate_limit(request: Request):
     """
     Token-Bucket Rate Limiter in Redis (10 Req/Min/User) gegen Abuse.
+    Degradiert graceful wenn Redis nicht verfügbar ist.
     """
     # Für den MVP nutzen wir die Client-IP als User-ID. Später: JWT/Auth-Token.
     user_id = request.client.host if request.client else "unknown"
@@ -314,33 +328,42 @@ async def check_rate_limit(request: Request):
     capacity = 10
     refill_rate = 10 / 60.0  # Tokens pro Sekunde
 
-    now = time.time()
-    res = await redis_client.hgetall(key)
+    try:
+        now = time.time()
+        res = await redis_client.hgetall(key)
 
-    if not res:
-        # Neuer User: Voller Bucket minus 1 Request
-        await redis_client.hset(key, mapping={"tokens": capacity - 1, "last_update": now})
-        await redis_client.expire(key, 60)
-        return
+        if not res:
+            # Neuer User: Voller Bucket minus 1 Request
+            await redis_client.hset(key, mapping={"tokens": capacity - 1, "last_update": now})
+            await redis_client.expire(key, 60)
+            return
 
-    tokens = float(res.get("tokens", capacity))
-    last_update = float(res.get("last_update", now))
+        tokens = float(res.get("tokens", capacity))
+        last_update = float(res.get("last_update", now))
 
-    # Refill basierend auf vergangener Zeit
-    elapsed = now - last_update
-    tokens = min(capacity, tokens + elapsed * refill_rate)
+        # Refill basierend auf vergangener Zeit
+        elapsed = now - last_update
+        tokens = min(capacity, tokens + elapsed * refill_rate)
 
-    if tokens >= 1:
-        tokens -= 1
-        await redis_client.hset(key, mapping={"tokens": tokens, "last_update": now})
-    else:
+        if tokens >= 1:
+            tokens -= 1
+            await redis_client.hset(key, mapping={"tokens": tokens, "last_update": now})
+        else:
+            logger.warning(
+                "Rate limit exceeded",
+                extra={"req_info": {"user_id": user_id, "event": "rate_limit_exceeded"}},
+            )
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded (10 Req/Min). Token bucket empty.",
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # Redis nicht verfügbar: Rate Limiting überspringen statt Request ablehnen
         logger.warning(
-            "Rate limit exceeded",
-            extra={"req_info": {"user_id": user_id, "event": "rate_limit_exceeded"}},
-        )
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded (10 Req/Min). Token bucket empty.",
+            f"Rate limiting unavailable (Redis error), allowing request: {exc}",
+            extra={"req_info": {"event": "rate_limit_skip", "user_id": user_id}},
         )
 
 
@@ -395,6 +418,25 @@ def apply_prompt_injection_defense(messages: List[Message]) -> List[dict]:
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 
+@app.get("/v1/models")
+async def list_models():
+    """
+    OpenAI-kompatibler Models-Endpunkt – wird von Open WebUI zum Entdecken
+    verfügbarer Modelle benötigt.
+    """
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": "gemini-2.0-flash-exp",
+                "object": "model",
+                "created": 1677858242,
+                "owned_by": "google",
+            }
+        ],
+    }
+
+
 @app.post("/v1/tools/approve/{execution_id}")
 async def approve_tool(execution_id: str, req: ToolApprovalRequest):
     """
@@ -442,9 +484,12 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
         prompt_hash = hashlib.sha256(messages_json).hexdigest()
         cache_key = f"prompt_cache:{prompt_hash}"
 
-        cached_response = await redis_client.get(cache_key)
-        if cached_response:
-            return json.loads(cached_response)
+        try:
+            cached_response = await redis_client.get(cache_key)
+            if cached_response:
+                return json.loads(cached_response)
+        except Exception as exc:
+            logger.warning(f"Cache lookup failed (Redis unavailable): {exc}")
 
     # RAG: Retrieve relevant document chunks for the user's query
     rag_context = ""
@@ -457,14 +502,21 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
 
     gemini_model: genai.GenerativeModel = req.app.state.gemini_model
 
-    def _build_model(system_instruction: Optional[str]) -> genai.GenerativeModel:
+    def _build_model(system_instruction: Optional[str]) -> Optional[genai.GenerativeModel]:
         """Return a model instance with the given system instruction (if any)."""
+        if gemini_model is None:
+            return None
         if system_instruction:
             return genai.GenerativeModel(
                 "gemini-2.0-flash-exp",
                 system_instruction=system_instruction,
             )
         return gemini_model
+
+    # Eindeutige IDs für OpenAI-kompatible Antworten
+    chat_id = f"chatcmpl-{uuid.uuid4().hex}"
+    created_ts = int(time.time())
+    model_name = request.model
 
     async def sse_generator():
         messages_with_context = list(secure_messages)
@@ -478,6 +530,11 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
                     + f"\n\n## Relevante Dokument-Abschnitte:\n{rag_context}"
                 ),
             }
+
+        def _make_chunk(content: str, finish_reason=None) -> str:
+            """Erstellt einen OpenAI-kompatiblen SSE-Chunk."""
+            delta = {"content": content} if content else {}
+            return f'data: {json.dumps({"id": chat_id, "object": "chat.completion.chunk", "created": created_ts, "model": model_name, "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}]})}\n\n'
 
         # Woche 7-8: HITL & SSE-Heartbeat
         # Trigger tool-call when the user mentions "search" (up to REACTIVE_MAX_ITERATIONS)
@@ -494,8 +551,8 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
             result_container = {"approved": False}
             app.state.approval_events[execution_id] = (event, result_container)
 
-            yield (
-                f'data: {json.dumps({"choices": [{"delta": {"content": f"\\n[SYSTEM] Tool-Freigabe erforderlich (Web-Search). Bitte Endpunkt /v1/tools/approve/{execution_id} aufrufen.\\n"}}]})}\n\n'
+            yield _make_chunk(
+                f"\n[SYSTEM] Tool-Freigabe erforderlich (Web-Search). Bitte Endpunkt /v1/tools/approve/{execution_id} aufrufen.\n"
             )
 
             try:
@@ -510,7 +567,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
 
                 if not wait_task.done():
                     wait_task.cancel()
-                    yield f'data: {json.dumps({"choices": [{"delta": {"content": "\\n[TOOL] Freigabe abgelaufen (Timeout 60s). Ausführung abgelehnt.\\n"}}]})}\n\n'
+                    yield _make_chunk("\n[TOOL] Freigabe abgelaufen (Timeout 60s). Ausführung abgelehnt.\n")
                 elif result_container.get("approved"):
                     search_query = next(
                         (
@@ -522,7 +579,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
                     )
                     tool_result = await tool_web_search(search_query)
                     iteration_count += 1
-                    yield f'data: {json.dumps({"choices": [{"delta": {"content": f"\\n[TOOL] {tool_result}\\n"}}]})}\n\n'
+                    yield _make_chunk(f"\n[TOOL] {tool_result}\n")
                     # Include search result in the context sent to Gemini
                     messages_with_context.append(
                         {
@@ -534,17 +591,24 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
                         }
                     )
                 else:
-                    yield f'data: {json.dumps({"choices": [{"delta": {"content": "\\n[TOOL] Ausführung vom User abgelehnt.\\n"}}]})}\n\n'
+                    yield _make_chunk("\n[TOOL] Ausführung vom User abgelehnt.\n")
             finally:
                 # Blueprint Regel 3: HITL Memory Leak Prävention
                 app.state.approval_events.pop(execution_id, None)
 
-        # Stream real Gemini response
+        # Stream real Gemini response (or dummy if API key missing)
         system_instruction, contents = _convert_messages_for_gemini(messages_with_context)
         if not contents:
             contents = [{"role": "user", "parts": [{"text": "Hallo"}]}]
 
         model_for_stream = _build_model(system_instruction)
+
+        if model_for_stream is None:
+            yield _make_chunk(_MSG_MISSING_API_KEY)
+            yield _make_chunk("", finish_reason="stop")
+            yield "data: [DONE]\n\n"
+            return
+
         queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
@@ -567,10 +631,11 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
                 break
             if isinstance(item, Exception):
                 logger.error(f"Gemini streaming error: {item}")
-                yield f'data: {json.dumps({"choices": [{"delta": {"content": f"[Fehler] Gemini API: {str(item)}"}}]})}\n\n'
+                yield _make_chunk(_MSG_API_ERROR)
                 break
-            yield f'data: {json.dumps({"choices": [{"delta": {"content": item}}]})}\n\n'
+            yield _make_chunk(item)
 
+        yield _make_chunk("", finish_reason="stop")
         yield "data: [DONE]\n\n"
 
     if request.stream:
@@ -583,21 +648,38 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
         if not contents:
             contents = [{"role": "user", "parts": [{"text": "Hallo"}]}]
 
-        try:
-            model_for_call = _build_model(system_instruction)
-            response = await asyncio.to_thread(model_for_call.generate_content, contents)
-            response_text = response.text
-        except Exception as exc:
-            logger.error(f"Gemini API error: {exc}")
-            raise HTTPException(status_code=502, detail=f"Gemini API Error: {str(exc)}")
+        model_for_call = _build_model(system_instruction)
+
+        if model_for_call is None:
+            response_text = _MSG_MISSING_API_KEY
+        else:
+            try:
+                response = await asyncio.to_thread(model_for_call.generate_content, contents)
+                response_text = response.text
+            except Exception as exc:
+                logger.error(f"Gemini API error: {exc}")
+                response_text = _MSG_API_ERROR
 
         response_data = {
-            "choices": [{"message": {"role": "assistant", "content": response_text}}]
+            "id": chat_id,
+            "object": "chat.completion",
+            "created": created_ts,
+            "model": model_name,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": response_text},
+                    "finish_reason": "stop",
+                }
+            ],
         }
 
         # Cache das Resultat für zukünftige identische non-RAG Anfragen (TTL: 24h)
         if cache_key:
-            await redis_client.set(cache_key, json.dumps(response_data), ex=86400)
+            try:
+                await redis_client.set(cache_key, json.dumps(response_data), ex=86400)
+            except Exception as exc:
+                logger.warning(f"Cache write failed (Redis unavailable): {exc}")
 
         return response_data
 
