@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
@@ -18,7 +18,7 @@ class UploadedFile(Base):
     path = Column(String(512), nullable=False)
     extracted_text = Column(Text, nullable=True)
     page_count = Column(Integer, nullable=True)
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     embeddings = relationship(
         "FileEmbedding", back_populates="file", cascade="all, delete-orphan"

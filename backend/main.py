@@ -17,6 +17,7 @@ import httpx
 import pdfplumber
 import redis.asyncio as redis
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select, text
@@ -31,6 +32,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 REACTIVE_MAX_ITERATIONS = int(os.getenv("REACTIVE_MAX_ITERATIONS", "3"))
 GOAL_MAX_ITERATIONS = int(os.getenv("GOAL_MAX_ITERATIONS", "10"))
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
+CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000").split(",")
 
 POSTGRES_USER = os.getenv("POSTGRES_USER", "workhorse")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "workhorse_secure_pw")
@@ -113,6 +115,7 @@ async def lifespan(app_instance: FastAPI):
     yield
 
     # Shutdown
+    await asyncio.to_thread(_thread_executor.shutdown, True)
     if getattr(app_instance.state, "db_engine", None):
         await app_instance.state.db_engine.dispose()
 
@@ -120,6 +123,14 @@ async def lifespan(app_instance: FastAPI):
 # ─── FastAPI App ──────────────────────────────────────────────────────────────
 
 app = FastAPI(title="AI-Workhorse v8.1 API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # HITL state (initialized before lifespan runs)
 app.state.approval_events = {}
@@ -535,7 +546,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
 
         model_for_stream = _build_model(system_instruction)
         queue: asyncio.Queue = asyncio.Queue()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def _stream_gemini():
             try:
@@ -592,7 +603,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
 
 
 @app.post("/v1/files/upload")
-async def upload_pdf(file: UploadFile = File(...), req: Request = None):
+async def upload_pdf(req: Request, file: UploadFile = File(...)):
     """
     Dedizierter Upload-Endpoint mit Path-Traversal-Schutz, pdfplumber-Parsing
     und automatischer Vektorisierung via Google text-embedding-004 + pgvector.
@@ -639,7 +650,7 @@ async def upload_pdf(file: UploadFile = File(...), req: Request = None):
 
     # Vektorisierung & pgvector Insert
     chunks_embedded = 0
-    db_session_factory = req and getattr(req.app.state, "db_session_factory", None)
+    db_session_factory = getattr(req.app.state, "db_session_factory", None)
     if extracted_text and db_session_factory:
         try:
             chunks = _split_into_chunks(extracted_text)
