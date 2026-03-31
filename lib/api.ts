@@ -84,6 +84,7 @@ export async function streamChatCompletion(
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let streamDone = false;
 
   try {
     while (true) {
@@ -98,6 +99,7 @@ export async function streamChatCompletion(
         if (!line.startsWith("data: ")) continue;
         const raw = line.slice(6).trim();
         if (raw === "[DONE]") {
+          streamDone = true;
           callbacks.onDone?.();
           return;
         }
@@ -123,7 +125,7 @@ export async function streamChatCompletion(
     callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
   } finally {
     reader.releaseLock();
-    callbacks.onDone?.();
+    if (!streamDone) callbacks.onDone?.();
   }
 }
 
