@@ -1,5 +1,5 @@
 {
-  "name": "Workhorse v8",
-  "description": "",
+  "name": "AI-Workhorse v8",
+  "description": "DSGVO-konforme KI-Assistenten-Plattform mit Gemini API, RAG-Pipeline und Human-in-the-Loop-Freigabesystem.",
   "requestFramePermissions": []
 }
