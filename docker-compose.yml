@@ -6,14 +6,19 @@ services:
     image: pgvector/pgvector:pg16
     container_name: ai-workhorse-db
     environment:
-      POSTGRES_USER: workhorse
-      POSTGRES_PASSWORD: workhorse_secure_pw
-      POSTGRES_DB: workhorse_db
+      POSTGRES_USER: ${POSTGRES_USER:-workhorse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-workhorse_db}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-workhorse}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     # Leichtgewichtiges Alpine-Image für Token-Bucket Rate Limiting
@@ -24,6 +29,11 @@ services:
     ports:
       - "6379:6379"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   api:
     # FastAPI Gehirn - läuft zwingend unter 1000:1000 für saubere Upload-Permissions
@@ -34,15 +44,45 @@ services:
     volumes:
       - ./backend:/app
       - ./uploads:/app/uploads
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      SERPER_API_KEY: ${SERPER_API_KEY:-}
+      POSTGRES_USER: ${POSTGRES_USER:-workhorse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-workhorse_db}
+      REACTIVE_MAX_ITERATIONS: ${REACTIVE_MAX_ITERATIONS:-3}
+      GOAL_MAX_ITERATIONS: ${GOAL_MAX_ITERATIONS:-10}
     # Hot-Reload für Vibe-Coding
     command: bash -c "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  openwebui:
+    # Chat-UI via Open WebUI – OpenAI-kompatibler Client für das AI-Workhorse Backend
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: ai-workhorse-webui
+    environment:
+      OPENAI_API_BASE_URL: http://api:8000/v1
+      OPENAI_API_KEY: workhorse-local
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-me-in-production}
+      ENABLE_SIGNUP: "true"
+      DEFAULT_MODELS: gemini-2.0-flash-exp
+    volumes:
+      - openwebui_data:/app/backend/data
+    ports:
+      - "3000:8080"
+    depends_on:
+      - api
     restart: unless-stopped
 
 volumes:
   pgdata:
   redisdata:
+  openwebui_data:
