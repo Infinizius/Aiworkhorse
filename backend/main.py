@@ -20,7 +20,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -787,3 +787,117 @@ async def upload_pdf(req: Request, file: UploadFile = File(...)):
         "chunks_embedded": chunks_embedded,
         "preview": extracted_text[:200] + "..." if extracted_text else "",
     }
+
+
+@app.get("/v1/files")
+async def list_files(req: Request):
+    """
+    Listet alle hochgeladenen Dateien mit Metadaten aus der Datenbank auf.
+    Ermöglicht den Zugriff auf das Dokumenten-Repository über das Dashboard.
+    """
+    db_session_factory = getattr(req.app.state, "db_session_factory", None)
+    if not db_session_factory:
+        raise HTTPException(status_code=503, detail="Database not available.")
+
+    async with db_session_factory() as session:
+        result = await session.execute(
+            select(UploadedFileModel).order_by(UploadedFileModel.uploaded_at.desc())
+        )
+        files = result.scalars().all()
+
+        # Fetch chunk counts for all files in a single query
+        count_result = await session.execute(
+            select(FileEmbedding.file_id, func.count(FileEmbedding.id).label("cnt"))
+            .group_by(FileEmbedding.file_id)
+        )
+        chunks_by_file = {row.file_id: row.cnt for row in count_result}
+
+        file_list = [
+            {
+                "file_id": f.id,
+                "filename": f.filename,
+                "page_count": f.page_count,
+                "chunks_embedded": chunks_by_file.get(f.id, 0),
+                "uploaded_at": f.uploaded_at.isoformat() if f.uploaded_at else None,
+                "preview": (f.extracted_text[:200] + "...") if f.extracted_text else "",
+            }
+            for f in files
+        ]
+
+    return {"files": file_list, "total": len(file_list)}
+
+
+@app.get("/v1/files/{file_id}")
+async def get_file(file_id: str, req: Request):
+    """
+    Gibt die Metadaten und den extrahierten Text einer einzelnen Datei zurück.
+    """
+    db_session_factory = getattr(req.app.state, "db_session_factory", None)
+    if not db_session_factory:
+        raise HTTPException(status_code=503, detail="Database not available.")
+
+    async with db_session_factory() as session:
+        result = await session.execute(
+            select(UploadedFileModel).where(UploadedFileModel.id == file_id)
+        )
+        f = result.scalar_one_or_none()
+        if not f:
+            raise HTTPException(status_code=404, detail="File not found.")
+
+        count_result = await session.execute(
+            select(func.count(FileEmbedding.id)).where(FileEmbedding.file_id == f.id)
+        )
+        chunks_count = count_result.scalar_one()
+
+    return {
+        "file_id": f.id,
+        "filename": f.filename,
+        "page_count": f.page_count,
+        "chunks_embedded": chunks_count,
+        "uploaded_at": f.uploaded_at.isoformat() if f.uploaded_at else None,
+        "extracted_text": f.extracted_text or "",
+    }
+
+
+@app.delete("/v1/files/{file_id}")
+async def delete_file(file_id: str, req: Request):
+    """
+    Löscht eine Datei und alle zugehörigen Embeddings aus der Datenbank
+    sowie die physische Datei vom Dateisystem.
+    """
+    db_session_factory = getattr(req.app.state, "db_session_factory", None)
+    if not db_session_factory:
+        raise HTTPException(status_code=503, detail="Database not available.")
+
+    async with db_session_factory() as session:
+        result = await session.execute(
+            select(UploadedFileModel).where(UploadedFileModel.id == file_id)
+        )
+        f = result.scalar_one_or_none()
+        if not f:
+            raise HTTPException(status_code=404, detail="File not found.")
+
+        stored_path = f.path
+        filename = f.filename
+
+        # Explicitly delete embeddings before deleting the parent record
+        # (ensures correctness even if lazy-loading is not available in async context)
+        await session.execute(
+            delete(FileEmbedding).where(FileEmbedding.file_id == file_id)
+        )
+        await session.delete(f)
+        await session.commit()
+
+    # Physische Datei löschen (falls vorhanden)
+    if stored_path and os.path.isfile(stored_path):
+        try:
+            os.remove(stored_path)
+        except OSError as exc:
+            logger.warning(f"Could not remove file {stored_path}: {exc}")
+
+    logger.info(
+        "File deleted",
+        extra={"req_info": {"event": "file_delete", "file_id": file_id}},
+    )
+
+    return {"status": "deleted", "file_id": file_id, "filename": filename}

@@ -1,4 +1,5 @@
-import { ExternalLink, Shield, Database, Cpu, Radio } from 'lucide-react';
+import Link from 'next/link';
+import { ExternalLink, Shield, Database, Cpu, Radio, FileText, ArrowRight } from 'lucide-react';
 
 const OPEN_WEBUI_URL = process.env.NEXT_PUBLIC_OPEN_WEBUI_URL ?? 'http://localhost:3000';
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
@@ -9,16 +10,12 @@ interface ServiceCardProps {
   href: string;
   icon: React.ReactNode;
   badge?: string;
+  internal?: boolean;
 }
 
-function ServiceCard({ title, description, href, icon, badge }: ServiceCardProps) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="group flex flex-col gap-3 rounded-2xl border border-gray-700 bg-gray-800/50 p-6 transition-all hover:border-blue-500 hover:bg-gray-800"
-    >
+function ServiceCard({ title, description, href, icon, badge, internal }: ServiceCardProps) {
+  const inner = (
+    <>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="text-blue-400">{icon}</div>
@@ -30,11 +27,32 @@ function ServiceCard({ title, description, href, icon, badge }: ServiceCardProps
               {badge}
             </span>
           )}
-          <ExternalLink className="h-4 w-4 text-gray-500 transition-colors group-hover:text-blue-400" />
+          {internal ? (
+            <ArrowRight className="h-4 w-4 text-gray-500 transition-colors group-hover:text-blue-400" />
+          ) : (
+            <ExternalLink className="h-4 w-4 text-gray-500 transition-colors group-hover:text-blue-400" />
+          )}
         </div>
       </div>
       <p className="text-sm text-gray-400">{description}</p>
       <span className="text-xs text-gray-500 font-mono">{href}</span>
+    </>
+  );
+
+  const className =
+    'group flex flex-col gap-3 rounded-2xl border border-gray-700 bg-gray-800/50 p-6 transition-all hover:border-blue-500 hover:bg-gray-800';
+
+  if (internal) {
+    return (
+      <Link href={href} className={className}>
+        {inner}
+      </Link>
+    );
+  }
+
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
+      {inner}
     </a>
   );
 }
@@ -81,6 +99,13 @@ export default function HomePage() {
             Chat öffnen
             <ExternalLink className="h-4 w-4" />
           </a>
+          <Link
+            href="/documents"
+            className="flex items-center gap-2 rounded-xl border border-gray-700 bg-gray-800 px-4 py-2 text-sm font-semibold text-gray-300 transition-colors hover:border-blue-500 hover:text-gray-100"
+          >
+            <FileText className="h-4 w-4" />
+            Dokumente
+          </Link>
         </div>
       </header>
 
@@ -129,6 +154,14 @@ export default function HomePage() {
               href={`${API_URL}/redoc`}
               icon={<Database className="h-5 w-5" />}
               badge="Docs"
+            />
+            <ServiceCard
+              title="Dokumente"
+              description="Alle hochgeladenen PDF-Dateien mit Vorschau und Verwaltung."
+              href="/documents"
+              icon={<FileText className="h-5 w-5" />}
+              badge="DB"
+              internal
             />
           </div>
         </section>
