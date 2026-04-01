@@ -125,6 +125,63 @@ docker compose logs -f api
 
 ---
 
+## 🔒 Hetzner VPS – HTTPS-Deployment
+
+Für den sicheren Betrieb auf einem öffentlich erreichbaren Hetzner VPS (z.B. CAX21) übernimmt **Caddy** als Reverse Proxy automatisch das TLS-Zertifikat via Let's Encrypt. Kein manuelles Certbot, keine Nginx-Konfiguration.
+
+### Voraussetzungen
+
+1. **DNS**: Ein A-Eintrag für deine Domain zeigt auf die öffentliche IP des VPS (z.B. `chat.example.com → 1.2.3.4`).
+2. **Firewall** (Hetzner Cloud Console → Firewall):
+   - Port `80/tcp` öffnen (HTTP, Let's Encrypt Challenge)
+   - Port `443/tcp` öffnen (HTTPS)
+   - Port `443/udp` öffnen (HTTP/3, optional)
+   - Ports `3002`, `8000`, `5432`, `6379` **schließen** (nicht öffentlich nötig)
+3. **`.env`**: `DOMAIN` und `WEBUI_SECRET_KEY` gesetzt (s.u.).
+
+### Schritt-für-Schritt
+
+```bash
+# 1. Repository klonen
+git clone https://github.com/Infinizius/Aiworkhorse-v8.git
+cd Aiworkhorse-v8
+
+# 2. Umgebungsvariablen konfigurieren
+cp .env.example .env
+# Trage GEMINI_API_KEY, POSTGRES_PASSWORD, WEBUI_SECRET_KEY und DOMAIN ein
+# (z.B. mit: nano .env  oder  vim .env)
+
+# 3. Alle Services inkl. Caddy (prod-Profil) starten
+docker compose --profile prod up -d
+
+# 4. Logs prüfen (Caddy holt automatisch das TLS-Zertifikat)
+docker compose logs -f caddy
+```
+
+Sobald Caddy das Zertifikat erhalten hat, ist Open WebUI unter `https://chat.example.com` erreichbar.
+
+### Wie es funktioniert
+
+```
+Browser
+  │  HTTPS (443)
+  ▼
+Caddy (caddy:2-alpine)        ← automatisches TLS via Let's Encrypt
+  │  HTTP intern
+  ▼
+Open WebUI (openwebui:8080)   ← nur im Docker-internen Netz erreichbar
+  │  HTTP intern
+  ▼
+FastAPI Backend (api:8000)    ← nur im Docker-internen Netz erreichbar
+```
+
+- **Lokale Entwicklung** (`docker compose up -d`): Open WebUI läuft weiterhin auf `http://localhost:3002`, Caddy wird nicht gestartet.
+- **Produktion** (`docker compose --profile prod up -d`): Caddy übernimmt HTTPS, alle anderen Ports bleiben intern.
+
+> **Tipp:** TLS-Zertifikate werden im Docker-Volume `caddy_data` gespeichert und automatisch erneuert. Bei einem VPS-Neustart bleiben Zertifikate erhalten.
+
+---
+
 ## ⚙️ Konfiguration
 
 Alle Einstellungen erfolgen über die `.env`-Datei. Eine vollständige Vorlage findest du in [`.env.example`](.env.example).
@@ -134,6 +191,7 @@ Alle Einstellungen erfolgen über die `.env`-Datei. Eine vollständige Vorlage f
 | `GEMINI_API_KEY` | Google Gemini API-Schlüssel | *(erforderlich)* |
 | `POSTGRES_PASSWORD` | Datenbankpasswort | *(erforderlich)* |
 | `WEBUI_SECRET_KEY` | Session-Schlüssel für Open WebUI | `change-me-in-production` |
+| `DOMAIN` | Domain für HTTPS (Hetzner VPS, `--profile prod`) | – |
 | `SERPER_API_KEY` | Serper API für Web-Suche *(optional)* | – |
 | `REACTIVE_MAX_ITERATIONS` | Max. Iterationen im reaktiven Modus | `3` |
 | `GOAL_MAX_ITERATIONS` | Max. Iterationen für die Goal-Engine | `10` |
