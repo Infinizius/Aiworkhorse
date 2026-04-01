@@ -53,6 +53,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-workhorse_db}
       REACTIVE_MAX_ITERATIONS: ${REACTIVE_MAX_ITERATIONS:-3}
       GOAL_MAX_ITERATIONS: ${GOAL_MAX_ITERATIONS:-10}
+      # API key for Bearer-Token authentication (must match OPENAI_API_KEY in openwebui)
+      API_KEY: ${API_KEY:-}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3002,http://localhost:3001}
     # Hot-Reload für Vibe-Coding
     command: bash -c "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
@@ -70,7 +73,8 @@ services:
     container_name: ai-workhorse-webui
     environment:
       OPENAI_API_BASE_URL: http://api:8000/v1
-      OPENAI_API_KEY: workhorse-local
+      # Must match API_KEY in the api service – Open WebUI sends this as the Bearer token
+      OPENAI_API_KEY: ${API_KEY:-workhorse-local}
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-me-in-production}
       ENABLE_SIGNUP: "true"
       DEFAULT_MODELS: gemini-2.0-flash-exp
