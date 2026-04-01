@@ -53,7 +53,9 @@
 | Sync-Skript (`sync.sh`) | ✅ Fertig | Tablet-freundlicher Git-Push |
 | Dev-Container (VSCode) | ✅ Fertig | Python 3.11, Extensions, psql-Client |
 | Alembic-Konfiguration | ✅ Fertig | Verbindung zu PostgreSQL hinterlegt |
-| **Gemini API Integration** | ✅ Fertig | Streaming + Non-Streaming, `google-generativeai>=0.8.0` |
+| **API-Key-Authentifizierung** | ✅ Fertig | Bearer Token; `verify_api_key`-Dependency; Auth deaktivierbar (Dev) |
+| **Token-basiertes Rate-Limiting** | ✅ Fertig | `_get_user_id()` bevorzugt Token-Hash vor Client-IP; X-Forwarded-For-Support |
+| **Erweiterte Prompt-Injection-Defense** | ✅ Fertig | 20 Patterns: Overrides, Jailbreaks, Role-Injection, Template-Injection |
 | **SQLAlchemy ORM-Modelle** | ✅ Fertig | `UploadedFile`, `FileEmbedding` in `models.py` |
 | **Alembic-Erstmigration** | ✅ Fertig | `0001_initial_schema.py` – pgvector Extension + Tabellen |
 | **RAG-Pipeline** | ✅ Fertig | Chunking, `text-embedding-004`, pgvector-Insert und -Suche |
@@ -68,15 +70,15 @@
 
 | Komponente | Problem | Priorität |
 |---|---|---|
-| API-Authentifizierung (JWT) | Nur IP-basiertes Rate-Limiting, kein Login | 🟠 Hoch |
-| ESLint im Build | `ignoreDuringBuilds: true` – Fehler werden ignoriert | 🟡 Mittel |
+| API-Authentifizierung (API-Key) | ✅ Implementiert (Bearer Token, M6) | 🟠 Hoch |
+| ESLint im Build | `ignoreDuringBuilds: false` – ESLint aktiv (M6) | ✅ Behoben |
 | Prompt-Injection-Pattern | Regex-Liste klein (5 Pattern); L33tspeak / Leerzeichen-Bypass möglich | 🟡 Mittel |
 | Health-Endpoint `GET /health` | Nicht vorhanden – DB + Redis Verbindung nicht prüfbar | 🟡 Mittel |
 | Alembic automatisch beim Start | `alembic upgrade head` muss manuell ausgeführt werden | 🟡 Mittel |
 | Log-Rotation | JSONL-Datei wächst unbegrenzt | 🟡 Mittel |
 | Tests | **Null** Test-Dateien vorhanden | 🟡 Mittel |
 | CI/CD-Pipeline | Keine GitHub Actions, kein automatisches Deployment | 🔵 Phase 2 |
-| JWT Rate-Limiting | Rate-Limiting nutzt Client-IP statt User-Token | 🟠 Hoch |
+| JWT Rate-Limiting | Rate-Limiting nutzt Token-Hash statt roher IP (M6) | ✅ Behoben |
 | LangGraph-Agenten | Für Phase 2 geplant (`GOAL_MAX_ITERATIONS`) | 🔵 Phase 2 |
 
 ### 2.3 Gesamtfortschritt
@@ -143,22 +145,16 @@ Gesamt (MVP)       █████████████░░░░░░░�
 
 ### 3.3 Offene Architekturprobleme 🔴🟠🟡
 
-#### ARCH-01: IP-basiertes Rate-Limiting statt JWT
-- **Datei:** `backend/main.py`, Zeile 326
-- **Problem:** Hinter einem Reverse-Proxy (Caddy, Cloud Run) sehen alle Nutzer dieselbe IP.
-  IP kann via VPN trivial umgangen werden.
-- **Fix:** JWT-basierte Authentifizierung; `X-Forwarded-For`-Header als IP-Fallback.
+#### ARCH-01: IP-basiertes Rate-Limiting statt JWT – ✅ BEHOBEN (M6)
+- **Fix:** `verify_api_key`-Dependency (Bearer Token); `_get_user_id()` nutzt Token-Hash;
+  `_get_client_ip()` wertet `X-Forwarded-For` korrekt aus (Caddy-Proxy-kompatibel).
 
-#### ARCH-05: Schwache Prompt-Injection-Erkennung
-- **Datei:** `backend/main.py`, Zeile 394
-- **Problem:** Regex-Pattern-Liste klein; Bypass via Tippfehler, Leerzeichen, L33tspeak möglich.
-- **Fix:** Erweiterte Pattern-Liste (mind. 15–20 Bypass-Varianten); optional semantische
-  Moderation via Gemini Safety-API.
+#### ARCH-05: Schwache Prompt-Injection-Erkennung – ✅ BEHOBEN (M6)
+- **Fix:** `_INJECTION_PATTERNS`-Liste mit 20 Patterns (direkte Overrides, Jailbreaks,
+  Role-Injection, Template-Injection-Marker).
 
-#### ARCH-09: ESLint im Build deaktiviert
-- **Datei:** `next.config.ts`, `eslint.ignoreDuringBuilds: true`
-- **Problem:** ESLint-Fehler werden beim Build ignoriert, Fehler bleiben unsichtbar.
-- **Fix:** `ignoreDuringBuilds: false` setzen; alle ESLint-Warnungen im Code beheben.
+#### ARCH-09: ESLint im Build deaktiviert – ✅ BEHOBEN (M6)
+- **Fix:** `ignoreDuringBuilds: false` in `next.config.ts`; alle ESLint-Fehler bereinigt.
 
 #### ARCH-12: Keine Tests
 - **Problem:** Weder für Backend (pytest) noch für Frontend (vitest) existieren Test-Dateien.
@@ -280,18 +276,23 @@ Die folgende Roadmap ist in Meilensteine (M) gegliedert, die aufeinander aufbaue
 
 ---
 
-### Meilenstein 6: Authentifizierung & Sicherheit (Dauer: ~3 Tage)
+### Meilenstein 6: Authentifizierung & Sicherheit ✅ ABGESCHLOSSEN
 > **Ziel:** Sicherer Mehrnutzer-Betrieb.
 
-- [ ] Einfache API-Key-Authentifizierung (Bearer Token im Header)
-  - Alternativ: Passwort-basierter Login mit JWT (simpler Flow für V1)
-- [ ] Rate-Limiting auf Basis des User-Tokens statt IP
-- [ ] `X-Forwarded-For`-Header korrekt auswerten (hinter Caddy-Proxy)
-- [ ] HITL-Freigaben: User-ID aus Token statt IP
-- [ ] Prompt-Injection-Pattern erweitern (mind. 15–20 bekannte Bypass-Varianten)
-- [ ] `ARCH-09` beheben: `ignoreDuringBuilds: false` in `next.config.ts`
+- [x] Einfache API-Key-Authentifizierung (Bearer Token im Header)
+  - `verify_api_key`-Dependency prüft `Authorization: Bearer <API_KEY>`
+  - `API_KEY` aus `.env` konfigurierbar; leer = Auth deaktiviert (Dev-Modus)
+- [x] Rate-Limiting auf Basis des User-Tokens statt IP
+  - `_get_user_id()` bevorzugt gehashten Bearer-Token vor Client-IP
+- [x] `X-Forwarded-For`-Header korrekt auswerten (hinter Caddy-Proxy)
+  - `_get_client_ip()` liest `X-Forwarded-For`, Fallback auf `request.client.host`
+- [x] HITL-Freigaben: User-ID aus Token statt IP
+  - Alle Logs verwenden `user_id` (Token-Hash oder IP) statt roher IP
+- [x] Prompt-Injection-Pattern erweitern (20 bekannte Bypass-Varianten)
+  - `_INJECTION_PATTERNS`-Liste mit 20 Patterns (Overrides, Jailbreaks, Role-Injection, Template-Injection)
+- [x] `ARCH-09` beheben: `ignoreDuringBuilds: false` in `next.config.ts`
 
-**Abnahmekriterium:** Anfragen ohne gültigen API-Key werden mit HTTP 401 abgelehnt.
+**Abnahmekriterium:** ✅ Anfragen ohne gültigen API-Key werden mit HTTP 401 abgelehnt.
 
 ---
 
@@ -354,7 +355,7 @@ M3: Gemini-API-Integration              [✅ Fertig]  → Echte KI-Antworten ✓
 M4: Chat-Frontend                       [✅ Fertig]  → Open WebUI + Dashboard ✓
 M5: RAG-Pipeline                        [✅ Fertig]  → PDF-Kontext in Antworten ✓
 M5.5: HTTPS für Hetzner VPS             [✅ Fertig]  → Caddy + Let's Encrypt ✓
-M6: Authentifizierung & Sicherheit      [~1 Woche]  → JWT, erweiterter Schutz
+M6: Authentifizierung & Sicherheit      [✅ Fertig]  → API-Key-Auth, erweiterter Schutz
 M7: Fehlerbehandlung & Logging          [~2 Tage]   → Health-Endpoint, Auto-Migration
 M8: Tests                               [~3 Tage]   → Testsuite vorhanden
 M9: Dokumentation & QA                  [~1 Tag]    → Onboarding-Ready

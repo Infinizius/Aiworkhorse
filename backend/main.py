@@ -16,7 +16,8 @@ import google.generativeai as genai
 import httpx
 import pdfplumber
 import redis.asyncio as redis
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Security, UploadFile
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -33,6 +34,8 @@ REACTIVE_MAX_ITERATIONS = int(os.getenv("REACTIVE_MAX_ITERATIONS", "3"))
 GOAL_MAX_ITERATIONS = int(os.getenv("GOAL_MAX_ITERATIONS", "10"))
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
 CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000").split(",")
+# API Key for Bearer-Token authentication (empty = auth disabled for local dev)
+API_KEY = os.getenv("API_KEY", "")
 
 POSTGRES_USER = os.getenv("POSTGRES_USER", "workhorse")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "workhorse_secure_pw")
@@ -89,6 +92,12 @@ async def lifespan(app_instance: FastAPI):
         logger.info(
             "Gemini model initialized",
             extra={"req_info": {"event": "startup", "model": "gemini-2.0-flash-exp"}},
+        )
+
+    if not API_KEY:
+        logger.warning(
+            "API_KEY is not set – authentication is DISABLED. Set API_KEY in .env for production.",
+            extra={"req_info": {"event": "startup_warning", "missing": "API_KEY"}},
         )
 
     # Database + pgvector setup
@@ -171,6 +180,9 @@ _MSG_API_ERROR = (
     "Es tut mir leid, ich konnte deine Anfrage momentan nicht verarbeiten. "
     "Bitte versuche es erneut."
 )
+
+# Maximum number of characters logged from user content (avoids large log entries)
+_LOG_CONTENT_MAX_LEN = 200
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -317,13 +329,65 @@ async def tool_web_search(query: str) -> str:
 # ─── Rate Limiting ────────────────────────────────────────────────────────────
 
 
+def _get_client_ip(request: Request) -> str:
+    """
+    Extract the real client IP, respecting the X-Forwarded-For header
+    set by reverse proxies such as Caddy.
+    """
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        # May be a comma-separated list; the leftmost is the original client IP
+        return forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _get_user_id(request: Request) -> str:
+    """
+    Return a stable, loggable user identifier.
+    Uses a SHA-256 hash of the Bearer token when auth is enabled so that
+    raw credentials never appear in logs. Falls back to the real client IP.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if API_KEY and auth_header.startswith("Bearer "):
+        token = auth_header[len("Bearer "):]
+        return "key:" + hashlib.sha256(token.encode()).hexdigest()[:16]
+    return _get_client_ip(request)
+
+
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+async def verify_api_key(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(_bearer_scheme),
+):
+    """
+    Verify the Bearer token in the Authorization header against the API_KEY env var.
+    If API_KEY is not configured (empty), authentication is disabled (dev mode).
+    """
+    if not API_KEY:
+        # Authentication disabled – allow all requests (log warning at startup)
+        return
+    if credentials is None or not credentials.credentials or credentials.credentials != API_KEY:
+        logger.warning(
+            "Unauthorized API access attempt",
+            extra={"req_info": {"event": "auth_failure", "ip": _get_client_ip(request)}},
+        )
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized: Missing or invalid API key.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 async def check_rate_limit(request: Request):
     """
     Token-Bucket Rate Limiter in Redis (10 Req/Min/User) gegen Abuse.
+    Uses the API key (hashed) as the user identifier when auth is enabled;
+    falls back to the real client IP (X-Forwarded-For aware) otherwise.
     Degradiert graceful wenn Redis nicht verfügbar ist.
     """
-    # Für den MVP nutzen wir die Client-IP als User-ID. Später: JWT/Auth-Token.
-    user_id = request.client.host if request.client else "unknown"
+    user_id = _get_user_id(request)
     key = f"bucket:{user_id}"
     capacity = 10
     refill_rate = 10 / 60.0  # Tokens pro Sekunde
@@ -369,10 +433,44 @@ async def check_rate_limit(request: Request):
 
 # ─── Prompt Injection Defense ─────────────────────────────────────────────────
 
+# 20 known bypass techniques – covers direct overrides, role injection, jailbreaks,
+# prompt-delimiter attacks and instruction-extraction attempts.
+_INJECTION_PATTERNS: List[str] = [
+    # 1-5: Direct instruction overrides
+    r"(?i)ignore\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions?|prompts?|rules?|context)",
+    r"(?i)disregard\s+(all\s+)?(previous|prior|above|earlier|any)\s+(instructions?|prompts?|rules?|directives?)",
+    r"(?i)forget\s+(all|previous|prior|your|everything)\s*(instructions?|prompts?|rules?|you.ve\s+been\s+told)?",
+    r"(?i)override\s+(your|the|all|any)?\s*(instructions?|rules?|system\s*prompt|directives?|guidelines?)",
+    r"(?i)bypass(ing)?\s+(your|the|all|any|safety|their)?\s*(instructions?|rules?|restrictions?|safety\s*(settings?|filters?)?|filters?|guidelines?)",
+    # 6-7: System prompt leakage / extraction
+    r"(?i)system\s*prompt",
+    r"(?i)(reveal|expose|print|output|repeat|display|echo|show)\s+(your|the|all)?\s*(instructions?|system\s*prompts?|context|rules?|training\s*data)",
+    # 8-12: Jailbreak keywords
+    r"(?i)\bjailbreak\b",
+    r"(?i)\bDAN\b",
+    r"(?i)\bdeveloper\s*mode\b",
+    r"(?i)\b(god\s*mode|unrestricted\s*mode)\b",
+    r"(?i)\bdo\s+anything\s+now\b",
+    # 13-15: Role injection / persona hijacking
+    r"(?i)(pretend|act|imagine|roleplay|simulate)\s+(that\s+)?(you\s+are|you.re|you\s+were|as\s+if\s+you)",
+    r"(?i)you\s+are\s+now\s+(a\s+)?(different|new|uncensored|unrestricted|evil|free|unfiltered|rogue)",
+    r"(?i)(you\s+are|you.re)\s+(no\s+longer|not\s+(an?\s+)?AI|not\s+bound\s+by|free\s+from)",
+    # 16-17: New/real instructions
+    r"(?i)new\s+(instructions?|rules?|directives?|orders?|task)\s*:",
+    r"(?i)(your\s+)?(true|real|actual|original|hidden)\s+(instructions?|purpose|role|goal|directive)",
+    # 18-20: Prompt-delimiter / template injection markers
+    r"(?i)\[INST\]",
+    r"(?i)###\s*(instruction|system|human|assistant)",
+    r"(?i)<\|(im_start|system|user|assistant)\|>",
+]
+
 
 def apply_prompt_injection_defense(messages: List[Message]) -> List[dict]:
     """
-    Die 3-stufige Prompt Injection Defense (Blueprint Regel 1)
+    Die 3-stufige Prompt Injection Defense (Blueprint Regel 1):
+    1. Unicode-Normalisierung (verhindert Bypass durch obskure Zeichen)
+    2. Harter System-Prompt-Anker (wird immer als erstes gesetzt)
+    3. Regex-Pattern-Liste mit 20 bekannten Bypass-Techniken
     """
     # Stufe 2: Harter System-Prompt-Anker (wird immer als erstes gesetzt)
     secure_messages = [
@@ -390,23 +488,23 @@ def apply_prompt_injection_defense(messages: List[Message]) -> List[dict]:
             # Stufe 1: Unicode-Normalisierung (verhindert Bypass durch obskure Zeichen)
             sanitized_text = unicodedata.normalize("NFKC", msg.content)
 
-            # Stufe 3: Regex-Fallback für bekannte Pattern
-            injection_pattern = r"(?i)(ignore previous|disregard|system prompt|forget all|bypassing)"
-            if re.search(injection_pattern, sanitized_text):
-                logger.warning(
-                    "Prompt Injection detected",
-                    extra={
-                        "req_info": {
-                            "event": "security_violation",
-                            "pattern": injection_pattern,
-                            "content": sanitized_text,
-                        }
-                    },
-                )
-                raise HTTPException(
-                    status_code=400,
-                    detail="Security Violation: Prompt Injection Pattern detected.",
-                )
+            # Stufe 3: Regex-Pattern-Liste für bekannte Injection-Techniken
+            for pattern in _INJECTION_PATTERNS:
+                if re.search(pattern, sanitized_text):
+                    logger.warning(
+                        "Prompt Injection detected",
+                        extra={
+                            "req_info": {
+                                "event": "security_violation",
+                                "pattern": pattern,
+                                "content": sanitized_text[:_LOG_CONTENT_MAX_LEN],
+                            }
+                        },
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Security Violation: Prompt Injection Pattern detected.",
+                    )
 
             secure_messages.append({"role": "user", "content": sanitized_text})
         elif msg.role == "assistant":
@@ -437,7 +535,7 @@ async def list_models():
     }
 
 
-@app.post("/v1/tools/approve/{execution_id}")
+@app.post("/v1/tools/approve/{execution_id}", dependencies=[Depends(verify_api_key)])
 async def approve_tool(execution_id: str, req: ToolApprovalRequest):
     """
     HITL Endpoint: Frontend bestätigt oder lehnt eine Tool-Ausführung ab.
@@ -454,19 +552,19 @@ async def approve_tool(execution_id: str, req: ToolApprovalRequest):
     return {"status": "success", "approved": req.approved}
 
 
-@app.post("/v1/chat/completions", dependencies=[Depends(check_rate_limit)])
+@app.post("/v1/chat/completions", dependencies=[Depends(verify_api_key), Depends(check_rate_limit)])
 async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
     """
     Proxy-Endpunkt für LLM-Anfragen inkl. echter Gemini-Integration,
     RAG-Kontext, HITL/SSE-Heartbeat und SHA256-Caching.
     """
-    user_ip = req.client.host if req.client else "unknown"
+    user_id = _get_user_id(req)
     logger.info(
         "Chat completion requested",
         extra={
             "req_info": {
                 "event": "chat_request",
-                "user_ip": user_ip,
+                "user_id": user_id,
                 "is_rag": len(request.file_ids) > 0,
             }
         },
@@ -684,7 +782,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
         return response_data
 
 
-@app.post("/v1/files/upload")
+@app.post("/v1/files/upload", dependencies=[Depends(verify_api_key)])
 async def upload_pdf(req: Request, file: UploadFile = File(...)):
     """
     Dedizierter Upload-Endpoint mit Path-Traversal-Schutz, pdfplumber-Parsing
@@ -789,7 +887,7 @@ async def upload_pdf(req: Request, file: UploadFile = File(...)):
     }
 
 
-@app.get("/v1/files")
+@app.get("/v1/files", dependencies=[Depends(verify_api_key)])
 async def list_files(req: Request):
     """
     Listet alle hochgeladenen Dateien mit Metadaten aus der Datenbank auf.
@@ -827,7 +925,7 @@ async def list_files(req: Request):
     return {"files": file_list, "total": len(file_list)}
 
 
-@app.get("/v1/files/{file_id}")
+@app.get("/v1/files/{file_id}", dependencies=[Depends(verify_api_key)])
 async def get_file(file_id: str, req: Request):
     """
     Gibt die Metadaten und den extrahierten Text einer einzelnen Datei zurück.
@@ -859,7 +957,7 @@ async def get_file(file_id: str, req: Request):
     }
 
 
-@app.delete("/v1/files/{file_id}")
+@app.delete("/v1/files/{file_id}", dependencies=[Depends(verify_api_key)])
 async def delete_file(file_id: str, req: Request):
     """
     Löscht den Datenbankdatensatz und alle zugehörigen Embeddings.
@@ -898,7 +996,7 @@ async def delete_file(file_id: str, req: Request):
     return {"status": "deleted", "file_id": file_id, "filename": filename}
 
 
-@app.get("/v1/files/{file_id}/download")
+@app.get("/v1/files/{file_id}/download", dependencies=[Depends(verify_api_key)])
 async def download_file(file_id: str, req: Request):
     """
     Gibt die originale PDF-Datei zum Download zurück.
