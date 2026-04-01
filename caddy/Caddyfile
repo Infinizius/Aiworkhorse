@@ -1,0 +1,12 @@
+# AI-Workhorse – Caddy Reverse Proxy Konfiguration
+# Automatisches HTTPS via Let's Encrypt (HTTP-01 Challenge)
+#
+# Voraussetzungen:
+#   - DOMAIN in .env gesetzt (z.B. DOMAIN=chat.example.com)
+#   - Port 80 und 443 am Hetzner VPS geöffnet (Firewall)
+#   - DNS-A-Eintrag zeigt auf die IP des VPS
+
+{$DOMAIN} {
+    # Open WebUI Chat-Interface – Hauptziel
+    reverse_proxy openwebui:8080
+}

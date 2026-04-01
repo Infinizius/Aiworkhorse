@@ -82,7 +82,31 @@ services:
       - api
     restart: unless-stopped
 
+  caddy:
+    # Reverse Proxy mit automatischem HTTPS via Let's Encrypt
+    # Wird nur im Produktionsbetrieb (--profile prod) gestartet.
+    # Voraussetzung: DOMAIN in .env gesetzt, DNS-A-Eintrag zeigt auf VPS-IP,
+    #                Port 80+443 in der Hetzner-Firewall freigegeben.
+    image: caddy:2-alpine
+    container_name: ai-workhorse-caddy
+    profiles: ["prod"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"    # HTTP/3 (QUIC)
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN must be set in .env for production (e.g. chat.example.com)}
+    depends_on:
+      - openwebui
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:
   openwebui_data:
+  caddy_data:
+  caddy_config:
