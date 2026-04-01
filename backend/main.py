@@ -18,7 +18,7 @@ import pdfplumber
 import redis.asyncio as redis
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -862,8 +862,11 @@ async def get_file(file_id: str, req: Request):
 @app.delete("/v1/files/{file_id}")
 async def delete_file(file_id: str, req: Request):
     """
-    Löscht eine Datei und alle zugehörigen Embeddings aus der Datenbank
-    sowie die physische Datei vom Dateisystem.
+    Löscht den Datenbankdatensatz und alle zugehörigen Embeddings.
+    Die physische Datei auf dem Dateisystem bleibt erhalten, sodass sie
+    weiterhin über den Download-Endpunkt abgerufen werden kann.
+    Hinweis: Frühere Versionen haben die physische Datei ebenfalls gelöscht –
+    dieses Verhalten wurde bewusst geändert.
     """
     db_session_factory = getattr(req.app.state, "db_session_factory", None)
     if not db_session_factory:
@@ -877,7 +880,6 @@ async def delete_file(file_id: str, req: Request):
         if not f:
             raise HTTPException(status_code=404, detail="File not found.")
 
-        stored_path = f.path
         filename = f.filename
 
         # Explicitly delete embeddings before deleting the parent record
@@ -888,16 +890,41 @@ async def delete_file(file_id: str, req: Request):
         await session.delete(f)
         await session.commit()
 
-    # Physische Datei löschen (falls vorhanden)
-    if stored_path and os.path.isfile(stored_path):
-        try:
-            os.remove(stored_path)
-        except OSError as exc:
-            logger.warning(f"Could not remove file {stored_path}: {exc}")
-
     logger.info(
         "File deleted",
         extra={"req_info": {"event": "file_delete", "file_id": file_id}},
     )
 
     return {"status": "deleted", "file_id": file_id, "filename": filename}
+
+
+@app.get("/v1/files/{file_id}/download")
+async def download_file(file_id: str, req: Request):
+    """
+    Gibt die originale PDF-Datei zum Download zurück.
+    Sucht den Dateipfad anhand der file_id in der Datenbank und liefert
+    die Datei mit dem ursprünglichen Dateinamen aus.
+    """
+    db_session_factory = getattr(req.app.state, "db_session_factory", None)
+    if not db_session_factory:
+        raise HTTPException(status_code=503, detail="Database not available.")
+
+    async with db_session_factory() as session:
+        result = await session.execute(
+            select(UploadedFileModel).where(UploadedFileModel.id == file_id)
+        )
+        f = result.scalar_one_or_none()
+        if not f:
+            raise HTTPException(status_code=404, detail="File not found.")
+
+        file_path = f.path
+        original_filename = f.filename
+
+    if not file_path or not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="Physical file not found on server.")
+
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf",
+        filename=original_filename,
+    )

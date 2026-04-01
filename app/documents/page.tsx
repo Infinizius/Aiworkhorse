@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, FileText, Trash2, RefreshCw, Calendar, Layers, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, FileText, Trash2, RefreshCw, Calendar, Layers, Eye, EyeOff, Download } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
@@ -60,7 +60,7 @@ export default function DocumentsPage() {
   }, [fetchFiles]);
 
   const handleDelete = async (fileId: string, filename: string) => {
-    if (!confirm(`Datei „${filename}" wirklich löschen? Alle Embeddings werden ebenfalls entfernt.`)) return;
+    if (!confirm(`Datei „${filename}" aus der Datenbank löschen? Alle Embeddings werden entfernt. Die originale PDF-Datei bleibt auf dem Server erhalten.`)) return;
     setDeleting(fileId);
     try {
       const res = await fetch(`${API_URL}/v1/files/${fileId}`, { method: 'DELETE' });
@@ -191,6 +191,15 @@ export default function DocumentsPage() {
                         <><Eye className="h-3.5 w-3.5" /> Vorschau</>
                       )}
                     </button>
+                    <a
+                      href={`${API_URL}/v1/files/${file.file_id}/download`}
+                      download={file.filename}
+                      className="flex items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-green-400 transition-colors hover:border-green-600 hover:bg-green-900/20"
+                      title="Original-PDF herunterladen"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Download
+                    </a>
                     <button
                       onClick={() => handleDelete(file.file_id, file.filename)}
                       disabled={deleting === file.file_id}

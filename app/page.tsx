@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { ExternalLink, Shield, Database, Cpu, Radio, FileText, ArrowRight } from 'lucide-react';
 
-const OPEN_WEBUI_URL = process.env.NEXT_PUBLIC_OPEN_WEBUI_URL ?? 'http://localhost:3000';
+const OPEN_WEBUI_URL = process.env.NEXT_PUBLIC_OPEN_WEBUI_URL ?? 'http://localhost:3002';
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
 interface ServiceCardProps {
@@ -126,7 +126,7 @@ export default function HomePage() {
             className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-8 py-3 font-semibold text-white transition-colors hover:bg-blue-500 text-lg mt-4"
           >
             <Radio className="h-5 w-5" />
-            Jetzt chatten (Open WebUI · Port 3000)
+            Jetzt chatten (Open WebUI · Port 3002)
           </a>
         </section>
 
