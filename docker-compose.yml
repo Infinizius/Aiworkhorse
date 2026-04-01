@@ -41,6 +41,9 @@ services:
     container_name: ai-workhorse-api
     user: "1000:1000"
     working_dir: /app
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
       - ./backend:/app
       - ./uploads:/app/uploads
@@ -55,9 +58,11 @@ services:
       GOAL_MAX_ITERATIONS: ${GOAL_MAX_ITERATIONS:-10}
       # API key for Bearer-Token authentication (must match OPENAI_API_KEY in openwebui)
       API_KEY: ${API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3002,http://localhost:3001}
+      HOME: /tmp
     # Hot-Reload für Vibe-Coding
-    command: bash -c "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    command: bash -c "pip install -r requirements.txt && export PATH=\"/tmp/.local/bin:$$PATH\" && export PYTHONPATH=\"/tmp/.local/lib/python3.11/site-packages:$$PYTHONPATH\" && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
     depends_on:
@@ -77,7 +82,7 @@ services:
       OPENAI_API_KEY: ${API_KEY:-workhorse-local}
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-me-in-production}
       ENABLE_SIGNUP: "true"
-      DEFAULT_MODELS: gemini-2.0-flash-exp
+      DEFAULT_MODELS: gemini-3-flash-preview
     volumes:
       - openwebui_data:/app/backend/data
     ports:

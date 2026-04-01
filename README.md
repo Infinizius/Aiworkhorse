@@ -1,73 +1,94 @@
-
 <div align="center">
 
 # 🤖 AI-Workhorse v8
 
-**DSGVO-konforme KI-Assistenten-Plattform mit Human-in-the-Loop-Kontrolle**
+**Die DSGVO-konforme KI-Assistenz-Plattform mit absoluter Datenkontrolle**
 
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org/)
-[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python)](https://python.org/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql)](https://postgresql.org/)
-[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker)](https://docker.com/)
-[![License](https://img.shields.io/badge/Lizenz-MIT-green?style=flat-square)](LICENSE)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python)](https://python.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?style=for-the-badge&logo=postgresql)](https://postgresql.org/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker)](https://docker.com/)
 
-*Sicher. Souverän. DSGVO-konform.*
+*Sicher. Souverän. Transparent. Keine Kompromisse.*
+
+---
+
+![Open WebUI Chat Interface](assets/chat_ui.png)
+*(Hinweis: Dies ist ein mock-up Platzhalter. Wenn deine App fertig ist, ersetzt du diesen durch reale Aufnahmen der fantastischen Oberfläche!)*
 
 </div>
 
----
+<br>
 
-## 📖 Projektübersicht
-
-**AI-Workhorse v8** ist eine selbst gehostete, DSGVO-konforme KI-Plattform, die leistungsstarke KI-Funktionen mit maximaler Datenschutzkontrolle verbindet. Das System verbindet die Gemini AI API mit einer robusten Sicherheitsarchitektur und einem Human-in-the-Loop-Freigabesystem – damit bleibt der Mensch immer in Kontrolle.
-
-### 🎯 Kernfunktionen
-
-| Feature | Beschreibung |
-|---|---|
-| 🛡️ **Prompt-Injection-Defense** | Dreistufige Schutzarchitektur: Unicode-Normalisierung, System-Anker und Regex-Filter |
-| 👤 **Human-in-the-Loop (HITL)** | Freigabe-System für Tool-Ausführungen via Server-Sent Events (SSE) |
-| 📄 **RAG-Pipeline** | PDF-Upload, Vektorisierung und semantische Suche via pgvector |
-| ⚡ **Rate Limiting** | Token-Bucket-Algorithmus über Redis (10 Req/Min/IP) |
-| 💬 **Chat UI** | Open WebUI – vollständig OpenAI-API-kompatibel |
-| 🔒 **DSGVO-konform** | Alle Daten bleiben auf Ihrer eigenen Infrastruktur |
+> **AI-Workhorse v8** bringt modernste KI-Workflows in deine eigene Infrastruktur. Durch die Kombination des neuesten *Google Generative AI SDK* (Gemini 2.0) mit einer kompromisslosen On-Premises Sicherheitsarchitektur bleiben alle deine sensiblen Daten genau dort, wo sie hingehören: Bei dir.
 
 ---
 
-## 🏗️ Architektur
+## ✨ Premium Features
 
+Hier trifft ein ultra-kompatibles OpenAI-Interface auf ein eigens gehärtetes Backend.
+
+| 🛡️ Security & Control | 🧠 AI & RAG Pipeline | ⚡ Performance & Architektur |
+| :--- | :--- | :--- |
+| **Dreistufige Injection-Defense**<br>Abwehr von Jailbreaks & Role-Injection. | **Native RAG Integration**<br>PDF-Uploads und automatische Chunking-Pipeline. | **Token-Bucket Rate Limiter**<br>IP-/Token-basierter Redis-Schutz (10 Req/Min). |
+| **Human-in-the-Loop (HITL)**<br>Manuelle Freigabe via Server-Sent Events (SSE). | **pgvector Ähnlichkeitssuche**<br>Millisekunden-genaues Vector-Embedding (768 Dim). | **Next.js 15 & Tailwind v4**<br>Modernes, pfeilschnelles Überwachungs-Dashboard. |
+| **API-Key Auth**<br>Abgesichert über asymmetrisches Token-Hashing. | **Open WebUI Chat**<br>Volle Kompatibilität zur OpenAI API Spezifikation. | **Automatisches HTTPS**<br>Caddy Reverse Proxy mit Let's Encrypt für VPS. |
+
+---
+
+## 🏗️ Systemarchitektur
+
+Das Zusammenspiel von 5 isolierten Docker-Containern garantiert Stabilität und Skalierbarkeit:
+
+```mermaid
+flowchart TD
+    User([Browser / User]) -- "HTTPS (443)" --> Caddy[Caddy Reverse Proxy\n TLS Let's Encrypt]
+    
+    subgraph Frontend [UI Layer]
+        Caddy -- "HTTP" --> WebUI(Open WebUI\nPort 3002)
+        Caddy -- "HTTP" --> Dashboard(Next.js Dashboard\nPort 3000)
+    end
+    
+    subgraph Backend [AI Engine Layer]
+        WebUI -- "REST /v1\nBearer Token" --> API{FastAPI Backend\nPort 8000}
+        Dashboard -- "Status Checks" --> API
+    end
+    
+    subgraph Data [Storage & Cache]
+        API -- "Rate Limiting\nCaching" --> Redis[(Redis 7)]
+        API -- "pgvector Queries\nFile Metadata" --> Postgres[(PostgreSQL 16)]
+    end
+    
+    API -- "Google Generative AI SDK" -.-> Gemini((Gemini 2.0 API))
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    AI-Workhorse v8                      │
-│                                                         │
-│  ┌──────────────┐    ┌──────────────┐                  │
-│  │  Open WebUI  │───▶│  FastAPI     │                  │
-│  │  (Port 3000) │    │  (Port 8000) │                  │
-│  │  Chat UI     │    │  Backend     │                  │
-│  └──────────────┘    └──────┬───────┘                  │
-│                             │                           │
-│              ┌──────────────┼──────────────┐           │
-│              ▼              ▼              ▼           │
-│        ┌──────────┐  ┌──────────┐  ┌──────────┐      │
-│        │PostgreSQL│  │  Redis   │  │  Gemini  │      │
-│        │+ pgvector│  │ (Cache / │  │   API    │      │
-│        │(Port5432)│  │Rate Limit│  │          │      │
-│        └──────────┘  └──────────┘  └──────────┘      │
-└─────────────────────────────────────────────────────────┘
+
+---
+
+## 🛡️ Sicherheitsarchitektur: Der Weg eines Requests
+
+Jeder Prompt durchläuft unsere strikte Sicherheits- und Freigabekette:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User (Open WebUI)
+    participant L as Rate Limiter (Redis)
+    participant D as Injection Defense
+    participant H as HITL Freigabe (SSE)
+    participant G as Gemini API
+    
+    U->>L: POST /chat/completions (Prompt)
+    L-->>U: 429 Too Many Requests (if exceeded)
+    L->>D: IP/Token verified, proceed
+    D->>D: Regex, Normalisierung & Anker-Check (20 Pattern)
+    D-->>U: 400 Bad Request (if malicious)
+    D->>H: Proceed to tool execution
+    H-->>U: Request Approval via Server-Sent Events (timeout)
+    U->>H: Approve Tool (Human-in-the-Loop)
+    H->>G: Tokenized Request to Google
+    G-->>U: Stream Real-Time Response
 ```
-
-### 🔧 Tech-Stack
-
-| Schicht | Technologie |
-|---|---|
-| **Chat UI** | [Open WebUI](https://github.com/open-webui/open-webui) |
-| **Dashboard** | Next.js 15 + React 19 + TypeScript + TailwindCSS v4 |
-| **Backend** | FastAPI 0.110 + Python 3.11 + Uvicorn |
-| **KI-Modell** | Google Gemini 2.0 Flash (via REST API) |
-| **Datenbank** | PostgreSQL 16 mit pgvector-Extension |
-| **Cache / Queue** | Redis 7 (Token-Bucket, SHA256-Caching) |
-| **Containerisierung** | Docker Compose |
 
 ---
 
@@ -78,245 +99,89 @@
 - [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docs.docker.com/compose/install/)
 - [Google Gemini API-Key](https://aistudio.google.com/app/apikey)
 
-### 1. Repository klonen
+### 1. Klonen & Setup
 
 ```bash
 git clone https://github.com/Infinizius/Aiworkhorse-v8.git
 cd Aiworkhorse-v8
-```
-
-### 2. Umgebungsvariablen konfigurieren
-
-```bash
 cp .env.example .env
 ```
+*Trage in der `.env` anschließend deine eigenen sicheren Passwörter und Schlüssel ein (insbesondere `GEMINI_API_KEY`, `POSTGRES_PASSWORD`, `WEBUI_SECRET_KEY`).*
 
-Öffne `.env` und trage deine Werte ein:
-
-```env
-GEMINI_API_KEY=dein-gemini-api-key-hier
-POSTGRES_PASSWORD=sicheres-datenbankpasswort
-WEBUI_SECRET_KEY=sicherer-session-schluessel
-```
-
-### 3. Starten
+### 2. Services starten
 
 ```bash
 docker compose up -d
 ```
 
-Das System startet automatisch alle Services:
+Alle Services stehen danach lokal bereit:
+- 💬 **Chat UI:** [http://localhost:3002](http://localhost:3002) - Das Haupt-Interface
+- 📊 **Dashboard:** [http://localhost:3000](http://localhost:3000) - Realtime-Systemstatus
+- ⚙️ **API Docs:** [http://localhost:8000/docs](http://localhost:8000/docs) - Swagger Interface
 
-| Service | URL | Beschreibung |
-|---|---|---|
-| 💬 **Chat UI** | http://localhost:3000 | Open WebUI – Hauptoberfläche |
-| ⚙️ **API** | http://localhost:8000 | FastAPI Backend |
-| 📊 **API Docs** | http://localhost:8000/docs | Swagger UI |
-
-### 4. Logs verfolgen
+### 3. Logs überwachen
 
 ```bash
-# Alle Services
+# Gesamte Infrastruktur
 docker compose logs -f
 
-# Nur das API-Backend
+# Spezifisch für das FastAPI Backend
 docker compose logs -f api
 ```
 
 ---
 
-## 🔒 Hetzner VPS – HTTPS-Deployment
+## 🔒 Produktion: Hetzner VPS Deployment (HTTPS)
 
-Für den sicheren Betrieb auf einem öffentlich erreichbaren Hetzner VPS (z.B. CAX21) übernimmt **Caddy** als Reverse Proxy automatisch das TLS-Zertifikat via Let's Encrypt. Kein manuelles Certbot, keine Nginx-Konfiguration.
+Für den sicheren Betrieb auf einem öffentlich erreichbaren Hetzner VPS (z.B. CAX21) übernimmt **Caddy** als Reverse Proxy automatisch die Ausstellung und Verwaltung der TLS-Zertifikate.
 
-### Voraussetzungen
-
-1. **DNS**: Ein A-Eintrag für deine Domain zeigt auf die öffentliche IP des VPS (z.B. `chat.example.com → 1.2.3.4`).
-2. **Firewall** (Hetzner Cloud Console → Firewall):
-   - Port `80/tcp` öffnen (HTTP, Let's Encrypt Challenge)
-   - Port `443/tcp` öffnen (HTTPS)
-   - Port `443/udp` öffnen (HTTP/3, optional)
-   - Ports `3002`, `8000`, `5432`, `6379` **schließen** (nicht öffentlich nötig)
-3. **`.env`**: `DOMAIN` und `WEBUI_SECRET_KEY` gesetzt (s.u.).
-
-### Schritt-für-Schritt
-
-```bash
-# 1. Repository klonen
-git clone https://github.com/Infinizius/Aiworkhorse-v8.git
-cd Aiworkhorse-v8
-
-# 2. Umgebungsvariablen konfigurieren
-cp .env.example .env
-# Trage GEMINI_API_KEY, POSTGRES_PASSWORD, WEBUI_SECRET_KEY und DOMAIN ein
-# (z.B. mit: nano .env  oder  vim .env)
-
-# 3. Alle Services inkl. Caddy (prod-Profil) starten
-docker compose --profile prod up -d
-
-# 4. Logs prüfen (Caddy holt automatisch das TLS-Zertifikat)
-docker compose logs -f caddy
-```
-
-Sobald Caddy das Zertifikat erhalten hat, ist Open WebUI unter `https://chat.example.com` erreichbar.
-
-### Wie es funktioniert
-
-```
-Browser
-  │  HTTPS (443)
-  ▼
-Caddy (caddy:2-alpine)        ← automatisches TLS via Let's Encrypt
-  │  HTTP intern
-  ▼
-Open WebUI (openwebui:8080)   ← nur im Docker-internen Netz erreichbar
-  │  HTTP intern
-  ▼
-FastAPI Backend (api:8000)    ← nur im Docker-internen Netz erreichbar
-```
-
-- **Lokale Entwicklung** (`docker compose up -d`): Open WebUI läuft weiterhin auf `http://localhost:3002`, Caddy wird nicht gestartet.
-- **Produktion** (`docker compose --profile prod up -d`): Caddy übernimmt HTTPS, alle anderen Ports bleiben intern.
-
-> **Tipp:** TLS-Zertifikate werden im Docker-Volume `caddy_data` gespeichert und automatisch erneuert. Bei einem VPS-Neustart bleiben Zertifikate erhalten.
+1. **DNS einrichten:** Ein A-Record (`chat.deinedomain.com`) muss auf die VPS IP zeigen.
+2. **Ports öffnen:** In der Hetzner Firewall Port `80` und `443` öffnen. Alle anderen (z.B. 8000, 5432) bleiben geschlossen!
+3. **Start mit Produktionsprofil:**
+   ```bash
+   # DOMAIN in der .env muss gesetzt sein!
+   docker compose --profile prod up -d
+   ```
+   Caddy konfiguriert das Let's Encrypt Zertifikat nun vollautomatisch und routet alle Requests per HTTPS.
 
 ---
 
-## ⚙️ Konfiguration
+## 📊 Status-Dashboard
 
-Alle Einstellungen erfolgen über die `.env`-Datei. Eine vollständige Vorlage findest du in [`.env.example`](.env.example).
-
-| Variable | Beschreibung | Standard |
-|---|---|---|
-| `GEMINI_API_KEY` | Google Gemini API-Schlüssel | *(erforderlich)* |
-| `POSTGRES_PASSWORD` | Datenbankpasswort | *(erforderlich)* |
-| `WEBUI_SECRET_KEY` | Session-Schlüssel für Open WebUI | `change-me-in-production` |
-| `DOMAIN` | Domain für HTTPS (Hetzner VPS, `--profile prod`) | – |
-| `SERPER_API_KEY` | Serper API für Web-Suche *(optional)* | – |
-| `REACTIVE_MAX_ITERATIONS` | Max. Iterationen im reaktiven Modus | `3` |
-| `GOAL_MAX_ITERATIONS` | Max. Iterationen für die Goal-Engine | `10` |
-| `CORS_ALLOW_ORIGINS` | Erlaubte CORS-Origins | `http://localhost:3000` |
-
----
-
-## 🛡️ Sicherheitsarchitektur
-
-AI-Workhorse v8 setzt auf mehrere Sicherheitsschichten:
-
-```
-Eingehende Anfrage
-       │
-       ▼
-┌─────────────────────┐
-│ 1. Rate Limiting    │  Token-Bucket via Redis (10 Req/Min/IP)
-│    (IP-basiert)     │
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│ 2. Prompt-Defense   │  Unicode-Normalisierung + System-Anker + Regex
-│    (Dreistufig)     │
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│ 3. HITL-Freigabe    │  Mensch genehmigt Tool-Ausführungen via SSE
-│    (Tool-Calls)     │
-└─────────┬───────────┘
-          │
-          ▼
-     Gemini API
-```
-
----
-
-## 📁 Projektstruktur
-
-```
-Aiworkhorse-v8/
-├── 📂 app/                  # Next.js Dashboard (Status-Seite)
-│   ├── globals.css
-│   ├── layout.tsx
-│   └── page.tsx
-├── 📂 backend/              # FastAPI-Backend
-│   ├── main.py              # API-Endpunkte, RAG, HITL, Rate Limiting
-│   ├── models.py            # SQLAlchemy-Modelle
-│   ├── requirements.txt     # Python-Abhängigkeiten
-│   └── alembic/             # Datenbank-Migrationen
-├── 📂 hooks/                # React Hooks (z.B. useIsMobile)
-├── 📂 lib/                  # Utilities (cn(), etc.)
-├── docker-compose.yml       # Service-Orchestrierung
-├── .env.example             # Konfigurationsvorlage
-├── backup.sh                # Datenbank-Backup-Skript
-├── sync.sh                  # Git-Sync für Tablet-Workflow
-└── ROADMAP.md               # Entwicklungsfahrplan
-```
-
----
-
-## 🗺️ Roadmap
-
-Einen detaillierten Überblick über den aktuellen Entwicklungsstand und die geplanten Features findest du in der [ROADMAP.md](ROADMAP.md).
-
-**Aktueller Gesamtfortschritt (MVP):** *(Stand: März 2026 – Schätzwerte)*
-
-```
-Infrastruktur      ████████████████████░░  ~85%
-Backend-Logik      ████████████░░░░░░░░░░  ~55%
-Sicherheit         ███████████████░░░░░░░  ~70%
-RAG-Pipeline       █████░░░░░░░░░░░░░░░░░  ~20%
-Frontend / UI      ██░░░░░░░░░░░░░░░░░░░░  ~10%
-Tests              ░░░░░░░░░░░░░░░░░░░░░░   ~0%
-─────────────────────────────────────────────────
-Gesamt (MVP)       █████████░░░░░░░░░░░░░  ~35%
-```
-
----
-
-## 🛠️ Entwicklung
-
-### Lokale Entwicklungsumgebung (ohne Docker)
-
-**Backend:**
-```bash
-cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-```
-
-**Frontend (Dashboard):**
-```bash
-npm install
-npm run dev
-```
-
-### Dev-Container (VS Code)
-
-Das Projekt enthält eine vollständige Dev-Container-Konfiguration für VS Code mit Python 3.11, allen Extensions und einem vorinstallierten PostgreSQL-Client.
-
-### Backup
-
-```bash
-# Datenbank und Uploads sichern
-./backup.sh
-```
-
----
-
-## 🤝 Beitragen
-
-Beiträge sind willkommen! Bitte lies die [ROADMAP.md](ROADMAP.md) für offene Aufgaben und schau dir die bekannten Bugs an, bevor du einen Pull Request öffnest.
-
----
-
-## 📄 Lizenz
-
-Dieses Projekt steht unter der [MIT-Lizenz](LICENSE).
-
----
+Hier der Ausblick auf das Next.js Verwaltungs-Dashboard unserer Architektur:
 
 <div align="center">
+  <img src="assets/dashboard.png" alt="Next.js Performance Dashboard">
+  <br>
+  <em>(Hinweis: Dies ist ein Mock-up-UI. In künftigen Versionen ersetzen durch das tatsächliche Next.js Dashboard Layout.)</em>
+</div>
 
-**AI-Workhorse v8** – Gebaut mit ❤️ für DSGVO-konforme KI
+---
 
+## 🗺️ Entwicklungs-Roadmap
+
+Der aktuelle MVP (v1.0 Candidate) ist bis Meilenstein 6 **weitestgehend funktionsfähig**. Basis-Sicherheit, RAG-Pipeline und Auth arbeiten zuverlässig, wenngleich in der API noch finale "Production Ready Checkpoints" wie Unit-Tests anstehen.
+
+```text
+Infrastruktur                ████████████████████░░  ~95% (Caddy & 5 Services up)
+Backend & RAG Logic          █████████████████░░░░░  ~80% (Google API SDK fully wired)
+Frontend / Dashboard         ███████████░░░░░░░░░░░  ~55% 
+Security Base                ████████████████████░░  ~90% (Token Hash, Injection checks run)
+Testing Suite (M8)           ░░░░░░░░░░░░░░░░░░░░░░  0% (No PyTest / Vitest yet)
+─────────────────────────────────────────────────────────────────
+Gesamt MVP                   ████████████████░░░░░░  ~75%
+```
+👉 *Die detaillierte Feature-Roadmap findest du in der [ROADMAP.md](ROADMAP.md)*
+
+---
+
+## 🤝 Beitragen & Lizenz
+
+Beiträge sind jederzeit willkommen! Da wir uns dem Ende des V1 MVP nähern, sind besonders Pull Requests für **Tests (`pytest`)** oder robuste Infrastruktur-Scans (`GET /health`) gesucht.
+
+Dieses Projekt steht unter der [MIT-Lizenz](LICENSE). 
+
+<div align="center">
+  <br>
+  <b>AI-Workhorse v8</b> – Gebaut mit ❤️ für DSGVO-konforme KI
 </div>

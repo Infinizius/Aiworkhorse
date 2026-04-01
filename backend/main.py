@@ -3,6 +3,7 @@ import concurrent.futures
 import hashlib
 import json
 import logging
+import logging.handlers
 import os
 import re
 import time
@@ -19,7 +20,7 @@ import redis.asyncio as redis
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Security, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -36,6 +37,7 @@ SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
 CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000").split(",")
 # API Key for Bearer-Token authentication (empty = auth disabled for local dev)
 API_KEY = os.getenv("API_KEY", "")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 
 POSTGRES_USER = os.getenv("POSTGRES_USER", "workhorse")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "workhorse_secure_pw")
@@ -67,7 +69,11 @@ class JSONFormatter(logging.Formatter):
 
 logger = logging.getLogger("ai_workhorse")
 logger.setLevel(logging.INFO)
-fh = logging.FileHandler(LOG_FILE)
+
+# TimedRotatingFileHandler: Rotation daily, keep 7 days
+fh = logging.handlers.TimedRotatingFileHandler(
+    LOG_FILE, when="D", interval=1, backupCount=7, encoding="utf-8"
+)
 fh.setFormatter(JSONFormatter())
 logger.addHandler(fh)
 
@@ -79,33 +85,39 @@ _thread_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
-    # Startup: validate required secrets
+    # Startup-Validation: Fail-Fast if critical settings are missing
+    # We check the variables directly, as they might have defaults if env vars are missing
     if not GEMINI_API_KEY:
-        logger.warning(
-            "GEMINI_API_KEY is not set – API calls will return dummy responses.",
-            extra={"req_info": {"event": "startup_warning", "missing": "GEMINI_API_KEY"}},
-        )
-        app_instance.state.gemini_model = None
-    else:
-        genai.configure(api_key=GEMINI_API_KEY)
-        app_instance.state.gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
-        logger.info(
-            "Gemini model initialized",
-            extra={"req_info": {"event": "startup", "model": "gemini-2.0-flash-exp"}},
-        )
-
+        error_msg = "Critical environment variable missing: GEMINI_API_KEY"
+        logger.critical(error_msg)
+        raise RuntimeError(error_msg)
+    
     if not API_KEY:
         logger.warning(
             "API_KEY is not set – authentication is DISABLED. Set API_KEY in .env for production.",
             extra={"req_info": {"event": "startup_warning", "missing": "API_KEY"}},
         )
 
+    # Initialize Gemini
+    genai.configure(api_key=GEMINI_API_KEY)
+    # Default model for general use
+    app_instance.state.gemini_model = genai.GenerativeModel("gemini-3-flash-preview")
+    logger.info(
+        "Gemini model initialized",
+        extra={"req_info": {"event": "startup", "model": "gemini-3-flash-preview"}},
+    )
+
     # Database + pgvector setup
     try:
         engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
         async with engine.begin() as conn:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-            await conn.run_sync(Base.metadata.create_all)
+            
+        import subprocess
+        # Fail-Fast Migration: Will raise CalledProcessError if it fails
+        subprocess.run(["alembic", "upgrade", "head"], check=True)
+        logger.info("Alembic migrations applied successfully")
+
         app_instance.state.db_engine = engine
         app_instance.state.db_session_factory = sessionmaker(
             engine, class_=AsyncSession, expire_on_commit=False
@@ -115,17 +127,20 @@ async def lifespan(app_instance: FastAPI):
             extra={"req_info": {"event": "startup", "db": "connected"}},
         )
     except Exception as exc:
-        logger.error(
-            f"Database initialization failed: {exc}",
+        logger.critical(
+            f"Initialization failed (Fail-Fast): {exc}",
             extra={"req_info": {"event": "startup_error", "detail": str(exc)}},
         )
-        app_instance.state.db_engine = None
-        app_instance.state.db_session_factory = None
+        # Re-raise to prevent app from starting
+        raise
 
     yield
 
     # Shutdown
-    await asyncio.to_thread(_thread_executor.shutdown, True)
+    def _shutdown_executor():
+        _thread_executor.shutdown(wait=True)
+
+    await asyncio.to_thread(_shutdown_executor)
     if getattr(app_instance.state, "db_engine", None):
         await app_instance.state.db_engine.dispose()
 
@@ -133,6 +148,47 @@ async def lifespan(app_instance: FastAPI):
 # ─── FastAPI App ──────────────────────────────────────────────────────────────
 
 app = FastAPI(title="AI-Workhorse v8.1 API", lifespan=lifespan)
+
+# Request-ID Middleware (RFC Standard & Tracking)
+@app.middleware("http")
+async def add_request_id_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+# RFC 7807 Error Handling
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        content={
+            "type": "https://ai-workhorse.de/errors/http-error",
+            "title": exc.detail if isinstance(exc.detail, str) else "An error occurred",
+            "status": exc.status_code,
+            "detail": exc.detail,
+            "instance": request.url.path,
+            "request_id": getattr(request.state, "request_id", "unknown")
+        },
+        status_code=exc.status_code,
+        media_type="application/problem+json"
+    )
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {exc}", extra={"req_info": {"event": "unhandled_error", "path": request.url.path}})
+    return JSONResponse(
+        content={
+            "type": "https://ai-workhorse.de/errors/internal-server-error",
+            "title": "Internal Server Error",
+            "status": 500,
+            "detail": str(exc) if os.getenv("DEBUG") else "An unexpected error occurred.",
+            "instance": request.url.path,
+            "request_id": getattr(request.state, "request_id", "unknown")
+        },
+        status_code=500,
+        media_type="application/problem+json"
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -516,6 +572,36 @@ def apply_prompt_injection_defense(messages: List[Message]) -> List[dict]:
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 
+@app.get("/health", dependencies=[Depends(verify_api_key)])
+async def health_check(request: Request):
+    """
+    Private Health-Endpoint (Master Blueprint v8.1).
+    Prüft DB- und Redis-Konnektivität.
+    """
+    status = {"status": "ok", "timestamp": datetime.utcnow().isoformat() + "Z"}
+    
+    # DB Check
+    try:
+        async with request.app.state.db_session_factory() as session:
+            await session.execute(text("SELECT 1"))
+        status["database"] = "connected"
+    except Exception as exc:
+        status["database"] = f"error: {exc}"
+        status["status"] = "error"
+
+    # Redis Check
+    try:
+        await redis_client.ping()
+        status["redis"] = "connected"
+    except Exception as exc:
+        status["redis"] = f"error: {exc}"
+        status["status"] = "error"
+
+    if status["status"] == "error":
+        raise HTTPException(status_code=503, detail=status)
+    return status
+
+
 @app.get("/v1/models")
 async def list_models():
     """
@@ -526,10 +612,28 @@ async def list_models():
         "object": "list",
         "data": [
             {
-                "id": "gemini-2.0-flash-exp",
+                "id": "gemini-3-flash-preview",
                 "object": "model",
                 "created": 1677858242,
                 "owned_by": "google",
+            },
+            {
+                "id": "gemma-3-27b-it",
+                "object": "model",
+                "created": 1708000000,
+                "owned_by": "google",
+            },
+            {
+                "id": "deepseek-v3.2-non-reasoning",
+                "object": "model",
+                "created": 1708000001,
+                "owned_by": "deepseek",
+            },
+            {
+                "id": "deepseek-v3.2-reasoning",
+                "object": "model",
+                "created": 1708000002,
+                "owned_by": "deepseek",
             }
         ],
     }
@@ -572,6 +676,60 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
 
     secure_messages = apply_prompt_injection_defense(request.messages)
 
+    # ─── DeepSeek Integration ───
+    if request.model.startswith("deepseek-v3.2"):
+        if not DEEPSEEK_API_KEY:
+            raise HTTPException(status_code=503, detail="DeepSeek API key not configured.")
+        
+        # Mapping von benutzerdefinierten IDs auf DeepSeek API Modelle
+        ds_model = "deepseek-chat"
+        if "reasoning" in request.model and "non-reasoning" not in request.model:
+            ds_model = "deepseek-reasoner"
+
+        ds_payload = {
+            "model": ds_model,
+            "messages": secure_messages,
+            "stream": request.stream
+        }
+
+        async def ds_stream_generator():
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                async with client.stream(
+                    "POST",
+                    "https://api.deepseek.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json=ds_payload
+                ) as response:
+                    if response.status_code != 200:
+                        err_body = await response.aread()
+                        logger.error(f"DeepSeek API error: {response.status_code} - {err_body.decode()}")
+                        # Raise HTTPException instead of yielding invalid JSON in stream
+                        raise HTTPException(status_code=response.status_code, detail=f"DeepSeek API error: {err_body.decode()}")
+
+                    async for chunk in response.aiter_bytes():
+                        yield chunk
+
+        if request.stream:
+            return StreamingResponse(ds_stream_generator(), media_type="text/event-stream")
+        else:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    "https://api.deepseek.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json=ds_payload
+                )
+                if resp.status_code != 200:
+                    logger.error(f"DeepSeek API error: {resp.status_code} - {resp.text}")
+                    raise HTTPException(status_code=resp.status_code, detail="DeepSeek API error")
+                return resp.json()
+    # ─── End DeepSeek Integration ───
+
     # --- Woche 5-6: RAG-Aware SHA256 Caching ---
     is_rag = len(request.file_ids) > 0
     cache_key = None
@@ -602,14 +760,15 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
 
     def _build_model(system_instruction: Optional[str]) -> Optional[genai.GenerativeModel]:
         """Return a model instance with the given system instruction (if any)."""
-        if gemini_model is None:
+        model_from_state = getattr(req.app.state, "gemini_model", None)
+        if model_from_state is None:
             return None
         if system_instruction:
             return genai.GenerativeModel(
-                "gemini-2.0-flash-exp",
+                "gemini-3-flash-preview",
                 system_instruction=system_instruction,
             )
-        return gemini_model
+        return model_from_state
 
     # Eindeutige IDs für OpenAI-kompatible Antworten
     chat_id = f"chatcmpl-{uuid.uuid4().hex}"
@@ -816,15 +975,15 @@ async def upload_pdf(req: Request, file: UploadFile = File(...)):
     )
 
     # PDF-Parsing mit pdfplumber (ARM64-kompatibel, exzellente Layout-Erkennung)
-    extracted_text = ""
-    page_count = 0
+    extracted_text: str = ""
+    page_count: int = 0
     try:
         with pdfplumber.open(file_path) as pdf:
             page_count = len(pdf.pages)
             for page in pdf.pages:
                 page_text = page.extract_text()
                 if page_text:
-                    extracted_text += page_text + "\n"
+                    extracted_text = f"{extracted_text}{page_text}\n"
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"PDF Parsing failed: {str(exc)}")
 
