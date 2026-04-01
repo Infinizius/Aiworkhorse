@@ -77,7 +77,7 @@ services:
     volumes:
       - openwebui_data:/app/backend/data
     ports:
-      - "3000:8080"
+      - "3002:8080"
     depends_on:
       - api
     restart: unless-stopped
