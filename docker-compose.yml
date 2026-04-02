@@ -70,6 +70,11 @@ services:
     command: bash -c "pip install --no-cache-dir -r requirements.txt && python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   worker:
@@ -110,7 +115,7 @@ services:
       # Trusted Header Auth for Phase 2 hardening
       WEBUI_AUTH_TRUSTED_EMAIL_HEADER: X-User-Email
       ENABLE_SIGNUP: "true"
-      DEFAULT_MODELS: gemini-3.1-flash-lite
+      DEFAULT_MODELS: gemini-3-flash-preview
     volumes:
       - openwebui_data:/app/backend/data
     ports:

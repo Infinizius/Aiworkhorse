@@ -174,13 +174,14 @@ export default function HomePage() {
               <FeatureItem label="Gemini 2.0 Flash – Streaming & Non-Streaming" status="done" />
               <FeatureItem label="Dreistufige Prompt-Injection-Defense" status="done" />
               <FeatureItem label="Token-Bucket Rate Limiter (Redis)" status="done" />
-              <FeatureItem label="HITL Tool-Freigabe (60s Timeout)" status="done" />
+              <FeatureItem label="HITL Tool-Freigabe (60s Timeout, User-gebunden)" status="done" />
               <FeatureItem label="SHA256-Prompt-Caching (24h TTL)" status="done" />
               <FeatureItem label="PDF-Upload + pdfplumber-Parsing" status="done" />
               <FeatureItem label="pgvector Embedding (text-embedding-004)" status="done" />
               <FeatureItem label="RAG – Ähnlichkeitssuche mit file_ids" status="done" />
               <FeatureItem label="Web-Search (Serper / DuckDuckGo)" status="done" />
-              <FeatureItem label="JWT-Authentifizierung" status="planned" />
+              <FeatureItem label="API-Key-Authentifizierung (Bearer Token)" status="done" />
+              <FeatureItem label="JWT/OAuth2 (Phase 2)" status="planned" />
             </ul>
           </div>
           <div className="rounded-2xl border border-gray-700 bg-gray-800/40 p-6">
@@ -191,9 +192,10 @@ export default function HomePage() {
               <FeatureItem label="Redis 7 (Caching & Rate Limiting)" status="done" />
               <FeatureItem label="Strukturiertes JSON-Logging (JSONL)" status="done" />
               <FeatureItem label="ARM64-kompatibel (Hetzner CAX21)" status="done" />
-              <FeatureItem label="Alembic-Migrationen" status="partial" />
+              <FeatureItem label="Alembic-Migrationen (automatisch beim Start)" status="done" />
+              <FeatureItem label="Backend-Tests (pytest, 39/39)" status="done" />
+              <FeatureItem label="Frontend-Tests (vitest)" status="planned" />
               <FeatureItem label="CI/CD Pipeline" status="planned" />
-              <FeatureItem label="Tests (pytest / vitest)" status="planned" />
             </ul>
           </div>
         </section>

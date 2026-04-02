@@ -28,6 +28,10 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_user_configs_user_id'), 'user_configs', ['user_id'], unique=False)
     op.drop_index(op.f('file_embeddings_embedding_idx'), table_name='file_embeddings', postgresql_ops={'embedding': 'vector_cosine_ops'}, postgresql_with={'lists': '100'}, postgresql_using='ivfflat')
+    # Recreate the IVFFlat index (autogenerate dropped it because it was created via raw SQL in 0001)
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS file_embeddings_embedding_idx ON file_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
+    )
     op.drop_constraint(op.f('file_embeddings_file_id_fkey'), 'file_embeddings', type_='foreignkey')
     op.create_foreign_key(None, 'file_embeddings', 'uploaded_files', ['file_id'], ['id'])
     op.alter_column('uploaded_files', 'uploaded_at',

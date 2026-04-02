@@ -455,14 +455,20 @@ async def list_models():
     }
 
 @app.post("/v1/tools/approve/{execution_id}", dependencies=[Depends(verify_api_key)])
-async def approve_tool(execution_id: str, req: ToolApprovalRequest):
+async def approve_tool(execution_id: str, body: ToolApprovalRequest, approving_user_id: str = Depends(get_current_user)):
     """
     HITL Endpoint: Frontend bestätigt oder lehnt eine Tool-Ausfuhrung ab.
+    Prüft, ob der freigebende Nutzer auch der Initiator der Anfrage ist.
     Speichert das Resultat in Redis mit 5 Minuten TTL.
     """
+    # Security: Verify the approving user matches the initiating user
+    stored_user_id = await redis_client.get(f"hitl_user:{execution_id}")
+    if stored_user_id and stored_user_id != approving_user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: Not authorized to approve this request")
+
     redis_key = f"approval:{execution_id}"
-    await redis_client.set(redis_key, "approved" if req.approved else "denied", ex=300)
-    return {"status": "success", "execution_id": execution_id, "approved": req.approved}
+    await redis_client.set(redis_key, "approved" if body.approved else "denied", ex=300)
+    return {"status": "success", "execution_id": execution_id, "approved": body.approved}
 
 @app.post("/v1/chat/completions", dependencies=[Depends(verify_api_key), Depends(check_rate_limit)])
 async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, user_id: str = Depends(get_current_user)):
@@ -524,6 +530,8 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
 
             execution_id = str(uuid.uuid4())
             redis_key = f"approval:{execution_id}"
+            # Bind execution_id to the requesting user for security (HITL hardening)
+            await redis_client.set(f"hitl_user:{execution_id}", user_id, ex=70)
             yield _chunk(f"\n[SYSTEM] Tool-Freigabe erforderlich (Web-Search). execution_id: {execution_id}\n")
             try:
                 deadline = time.time() + 60
@@ -548,6 +556,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
                     break
             finally:
                 await redis_client.delete(redis_key)
+                await redis_client.delete(f"hitl_user:{execution_id}")
 
         def _convert_and_stream():
             try:
@@ -639,9 +648,27 @@ async def upload_pdf(req: Request, background_tasks: BackgroundTasks, file: Uplo
 @app.get("/v1/files", dependencies=[Depends(verify_api_key)])
 async def list_files(req: Request):
     async with req.app.state.db_session_factory() as session:
+        # Count embeddings per file in one query
+        embedding_count_rows = await session.execute(
+            select(FileEmbedding.file_id, func.count(FileEmbedding.id).label("cnt"))
+            .group_by(FileEmbedding.file_id)
+        )
+        counts_map: dict = {row.file_id: row.cnt for row in embedding_count_rows.all()}
+
         res = await session.execute(select(UploadedFileModel))
         files = res.scalars().all()
-        return {"files": [{"file_id": f.id, "filename": f.filename} for f in files]}
+        file_list = [
+            {
+                "file_id": f.id,
+                "filename": f.filename,
+                "page_count": f.page_count,
+                "chunks_embedded": counts_map.get(f.id, 0),
+                "uploaded_at": f.uploaded_at.isoformat() if f.uploaded_at else None,
+                "preview": (f.extracted_text or "")[:500],
+            }
+            for f in files
+        ]
+        return {"files": file_list, "total": len(file_list)}
 
 @app.get("/v1/files/{file_id}", dependencies=[Depends(verify_api_key)])
 async def get_file(file_id: str, req: Request):
