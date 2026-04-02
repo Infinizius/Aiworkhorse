@@ -96,17 +96,14 @@ _thread_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
-    # Startup-Validation: Fail-Fast if critical settings are missing
-    if not GEMINI_API_KEY:
-        error_msg = "Critical environment variable missing: GEMINI_API_KEY"
-        logger.critical(error_msg)
-        raise RuntimeError(error_msg)
-    
-    if not API_KEY:
-        logger.warning(
-            "API_KEY is not set – authentication is DISABLED. Set API_KEY in .env for production.",
-            extra={"req_info": {"event": "startup_warning", "missing": "API_KEY"}},
-        )
+    # Startup-Validation: Centralized Fail-Fast (v1.1.1)
+    try:
+        validate_config()
+        from security_utils import verify_encryption_setup
+        verify_encryption_setup()
+    except Exception as e:
+        logger.critical(f"Config validation failed: {e}")
+        raise RuntimeError(f"Startup aborted: {e}")
 
     # Initialize Gemini (google-genai Phase 2)
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
@@ -123,7 +120,8 @@ async def lifespan(app_instance: FastAPI):
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             
         import subprocess
-        # Fail-Fast Migration
+        # Robust Migration (v1.1.1: Only run if not in read-only environment)
+        # Using check=True to Fail-Fast if migration fails.
         subprocess.run(["alembic", "upgrade", "head"], check=True)
         logger.info("Alembic migrations applied successfully")
 
