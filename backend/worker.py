@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 
 from models import Base, FileEmbedding, UploadedFile as UploadedFileModel
 
-from config import DATABASE_URL, validate_config
+from config import DATABASE_URL, GEMINI_API_KEY, validate_config
 
 # Configuration validation at import for the worker process
 try:

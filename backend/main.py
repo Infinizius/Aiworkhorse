@@ -102,10 +102,15 @@ async def lifespan(app_instance: FastAPI):
         async with engine.begin() as conn:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             
-        import subprocess
-        # Robust Migration (v1.1.1: Only run if not in read-only environment)
-        # Using check=True to Fail-Fast if migration fails.
-        subprocess.run(["alembic", "upgrade", "head"], check=True)
+        # Non-blocking Alembic migration using async subprocess
+        proc = await asyncio.create_subprocess_exec(
+            "alembic", "upgrade", "head",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"Alembic migration failed: {stderr.decode()}")
         logger.info("Alembic migrations applied successfully")
 
         app_instance.state.db_engine = engine
@@ -347,7 +352,33 @@ async def check_rate_limit(request: Request):
 # ─── Prompt Injection Defense ─────────────────────────────────────────────────
 
 _INJECTION_PATTERNS = [
-    r"(?i)ignore\s+instructions", r"(?i)system\s*prompt", r"(?i)jailbreak", r"(?i)pretend\s+you\s+are"
+    # Direct instruction overrides (Pattern 1-4)
+    r"(?i)ignore\s+(all\s+)?(previous|prior|earlier|above)\s+(instructions?|directives?|rules?|prompts?)",
+    r"(?i)ignore\s+instructions",
+    r"(?i)disregard\s+(all\s+)?(previous|prior|earlier|above|your)\s+(instructions?|directives?|rules?|prompts?)",
+    r"(?i)forget\s+(your\s+)?(instructions?|directives?|rules?|context|everything|prompt)",
+    # System prompt references (Pattern 5-6)
+    r"(?i)override\s+(your\s+)?(system\s+)?(prompt|instructions?|rules?)",
+    r"(?i)system\s*prompt",
+    # System prompt extraction (Pattern 7)
+    r"(?i)reveal\s+(your\s+)?(instructions?|system\s*prompt|directives?|rules?|training)",
+    # Jailbreak keywords (Pattern 8-12)
+    r"(?i)\bjailbreak\b",
+    r"(?i)\bDAN\b",
+    r"(?i)developer\s+mode",
+    r"(?i)god\s+mode",
+    r"(?i)do\s+anything\s+now",
+    # Role injection (Pattern 13-15)
+    r"(?i)pretend\s+(you\s+are|to\s+be)",
+    r"(?i)you\s+are\s+now\s+(uncensored|unfiltered|unrestricted|free|evil)",
+    r"(?i)you\s+are\s+no\s+longer\s+(an?\s+)?(AI|assistant|language\s+model|bot)",
+    # Template injection (Pattern 16-17)
+    r"(?i)\[INST\]",
+    r"(?i)###\s*system",
+    # Additional defense-in-depth patterns (Pattern 18-20)
+    r"(?i)new\s+(persona|role|instructions?|directives?|system\s*prompt)",
+    r"(?i)bypass\s+(safety|security|filter|restriction|guardrail)",
+    r"(?i)act\s+as\s+(?:if\s+you\s+(?:are|were)\s+)?(?:uncensored|unrestricted|evil|unfiltered)",
 ]
 
 def apply_prompt_injection_defense(messages: List[Message]) -> List[dict]:
@@ -367,11 +398,30 @@ async def readiness_probe(): return {"status": "ok"}
 
 @app.get("/health", dependencies=[Depends(verify_api_key)])
 async def health_check(request: Request):
+    db_status = "disconnected"
+    redis_status = "disconnected"
+    errors = []
+
     try:
-        async with request.app.state.db_session_factory() as session: await session.execute(text("SELECT 1"))
+        async with request.app.state.db_session_factory() as session:
+            await session.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception as exc:
+        errors.append(f"DB: {exc}")
+
+    try:
         await redis_client.ping()
-        return {"status": "ok"}
-    except Exception: raise HTTPException(status_code=503, detail="Unhealthy")
+        redis_status = "connected"
+    except Exception as exc:
+        errors.append(f"Redis: {exc}")
+
+    if errors:
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "error", "database": db_status, "redis": redis_status, "errors": errors},
+        )
+
+    return {"status": "ok", "database": db_status, "redis": redis_status}
 
 @app.post("/v1/user/config", dependencies=[Depends(verify_api_key)])
 async def update_user_config(config: UserConfigRequest, user_id: str = Depends(get_current_user), req: Request = None):
@@ -387,21 +437,21 @@ async def update_user_config(config: UserConfigRequest, user_id: str = Depends(g
 
 @app.get("/v1/models")
 async def list_models():
+    _ts = 1700000000  # Fixed creation timestamp for stability
     return {
         "object": "list",
         "data": [
-            {"id": "gemini-3.1-flash-lite", "owned_by": "google"},
-            {"id": "gemini-3.1-flash", "owned_by": "google"},
-            {"id": "gemini-3.1-pro", "owned_by": "google"},
-            {"id": "gemini-2.5-flash", "owned_by": "google"},
-            {"id": "gemini-2.5-pro", "owned_by": "google"},
-            {"id": "gemma-4-26b-a4b-it", "owned_by": "google"},
-            {"id": "gemma-4-31b-it", "owned_by": "google"},
-            {"id": "deepseek-chat", "owned_by": "deepseek"},
-            {"id": "deepseek-reasoner", "owned_by": "deepseek"},
-            {"id": "mistral-large-latest", "owned_by": "mistral"},
-            {"id": "mistral-small-latest", "owned_by": "mistral"}
-        ]
+            {"id": "gemini-3-flash-preview", "object": "model", "created": _ts, "owned_by": "google"},
+            {"id": "gemini-3-pro-preview", "object": "model", "created": _ts, "owned_by": "google"},
+            {"id": "gemini-2.5-flash", "object": "model", "created": _ts, "owned_by": "google"},
+            {"id": "gemini-2.5-pro", "object": "model", "created": _ts, "owned_by": "google"},
+            {"id": "gemma-3-27b-it", "object": "model", "created": _ts, "owned_by": "google"},
+            {"id": "deepseek-v3.2-non-reasoning", "object": "model", "created": _ts, "owned_by": "deepseek"},
+            {"id": "deepseek-v3.2-reasoning", "object": "model", "created": _ts, "owned_by": "deepseek"},
+            {"id": "mistral-large-latest", "object": "model", "created": _ts, "owned_by": "mistral"},
+            {"id": "mistral-small-latest", "object": "model", "created": _ts, "owned_by": "mistral"},
+            {"id": "codestral-latest", "object": "model", "created": _ts, "owned_by": "mistral"},
+        ],
     }
 
 @app.post("/v1/tools/approve/{execution_id}", dependencies=[Depends(verify_api_key)])
@@ -417,26 +467,37 @@ async def approve_tool(execution_id: str, req: ToolApprovalRequest):
 @app.post("/v1/chat/completions", dependencies=[Depends(verify_api_key), Depends(check_rate_limit)])
 async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, user_id: str = Depends(get_current_user)):
     secure_messages = apply_prompt_injection_defense(request.messages)
-    model_name = request.model or "gemini-3.1-flash-lite"
-    
-    # Provider routing
+    model_name = request.model or "gemini-3-flash-preview"
+
+    # Provider routing (codestral belongs to Mistral)
     provider = "gemini"
     default_key = GEMINI_API_KEY
-    if "mistral" in model_name: provider, default_key = "mistral", MISTRAL_API_KEY
-    elif "deepseek" in model_name: provider, default_key = "deepseek", DEEPSEEK_API_KEY
-    
+    if "mistral" in model_name or "codestral" in model_name:
+        provider, default_key = "mistral", MISTRAL_API_KEY
+    elif "deepseek" in model_name:
+        provider, default_key = "deepseek", DEEPSEEK_API_KEY
+
+    # Model alias mapping: public model ID → actual API model name
+    _MODEL_ALIASES: dict = {
+        "deepseek-v3.2-reasoning": "deepseek-reasoner",
+        "deepseek-v3.2-non-reasoning": "deepseek-chat",
+    }
+    api_model_name = _MODEL_ALIASES.get(model_name, model_name)
+
+    _PROVIDER_DISPLAY = {"gemini": "Gemini", "mistral": "Mistral", "deepseek": "DeepSeek"}
     api_key = await _get_user_api_key(user_id, provider, req.app) or default_key
-    if not api_key: raise HTTPException(status_code=503, detail=f"{provider} key missing")
+    if not api_key:
+        raise HTTPException(status_code=503, detail=f"{_PROVIDER_DISPLAY.get(provider, provider)} key missing")
 
     if provider in ["mistral", "deepseek"]:
         base_url = "https://api.mistral.ai/v1" if provider == "mistral" else "https://api.deepseek.com/v1"
         async def _proxy():
             async with httpx.AsyncClient(timeout=60.0) as client:
-                async with client.stream("POST", f"{base_url}/chat/completions", headers={"Authorization": f"Bearer {api_key}"}, json={"model": model_name, "messages": secure_messages, "stream": request.stream}) as resp:
+                async with client.stream("POST", f"{base_url}/chat/completions", headers={"Authorization": f"Bearer {api_key}"}, json={"model": api_model_name, "messages": secure_messages, "stream": request.stream}) as resp:
                     async for chunk in resp.aiter_bytes(): yield chunk
         if request.stream: return StreamingResponse(_proxy(), media_type="text/event-stream")
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(f"{base_url}/chat/completions", headers={"Authorization": f"Bearer {api_key}"}, json={"model": model_name, "messages": secure_messages})
+            resp = await client.post(f"{base_url}/chat/completions", headers={"Authorization": f"Bearer {api_key}"}, json={"model": api_model_name, "messages": secure_messages})
             return resp.json()
 
     # Gemini
@@ -451,13 +512,16 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
     async def sse_gen():
         msgs = list(secure_messages)
         if rag_context: msgs[0]["content"] += f"\n\nContext:\n{rag_context}"
-        
-        def _chunk(c): 
+
+        def _chunk(c):
             return f'data: {json.dumps({"id": chat_id, "object": "chat.completion.chunk", "created": created_ts, "model": model_name, "choices": [{"index": 0, "delta": {"content": c}}]})}\n\n'
 
-        # Week 11: Persistent HITL Logic via Redis
-        needs_tool = any("search" in msg["content"].lower() for msg in msgs if msg["role"] == "user")
-        if needs_tool:
+        # Persistent HITL Logic via Redis – bounded by REACTIVE_MAX_ITERATIONS
+        for _iteration in range(REACTIVE_MAX_ITERATIONS):
+            needs_tool = any("search" in msg["content"].lower() for msg in msgs if msg["role"] == "user")
+            if not needs_tool:
+                break
+
             execution_id = str(uuid.uuid4())
             redis_key = f"approval:{execution_id}"
             yield _chunk(f"\n[SYSTEM] Tool-Freigabe erforderlich (Web-Search). execution_id: {execution_id}\n")
@@ -473,7 +537,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
                         break
                     await asyncio.sleep(1)
                     yield ": keep-alive\n\n"
-                
+
                 if approved:
                     search_query = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "AI Workhorse")
                     tool_result = await tool_web_search(search_query)
@@ -481,13 +545,14 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
                     msgs.append({"role": "user", "content": f"[Web-Search Ergebnis]\n{tool_result}\n\nBitte fortfahren."})
                 else:
                     yield _chunk("\n[SYSTEM] Tool-Ausfuhrung abgelehnt oder Timeout.\n")
+                    break
             finally:
                 await redis_client.delete(redis_key)
 
         def _convert_and_stream():
             try:
                 sys_instr, contents = _convert_messages_for_gemini(msgs)
-                stream = client.models.generate_content_stream(model=model_name, contents=contents, config={"system_instruction": sys_instr})
+                stream = client.models.generate_content_stream(model=api_model_name, contents=contents, config={"system_instruction": sys_instr})
                 for chunk in stream:
                     if chunk.text: yield _chunk(chunk.text)
             except Exception as e: yield _chunk(f"Error: {e}")
@@ -496,10 +561,34 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
         for c in _convert_and_stream(): yield c
 
     if request.stream: return StreamingResponse(sse_gen(), media_type="text/event-stream")
+
+    # Non-streaming Gemini path with SHA256 Prompt-Caching (Blueprint Rule 6)
+    # Cache is disabled for RAG queries since injected context changes each time.
     sys_instr, contents = _convert_messages_for_gemini(secure_messages)
     if rag_context: sys_instr = (sys_instr or "") + f"\n\nContext:\n{rag_context}"
-    resp = await asyncio.to_thread(client.models.generate_content, model=model_name, contents=contents, config={"system_instruction": sys_instr})
-    return {"id": chat_id, "object": "chat.completion", "created": created_ts, "model": model_name, "choices": [{"index": 0, "message": {"role": "assistant", "content": resp.text}}]}
+
+    if not request.file_ids:
+        _cache_input = json.dumps(
+            {"model": api_model_name, "messages": [{"role": m["role"], "content": m["content"]} for m in secure_messages]},
+            sort_keys=True,
+        )
+        _prompt_hash = hashlib.sha256(_cache_input.encode()).hexdigest()
+        _cached = await redis_client.get(f"cache:{_prompt_hash}") if redis_client else None
+        if _cached:
+            return {"id": chat_id, "object": "chat.completion", "created": created_ts, "model": model_name, "choices": [{"index": 0, "message": {"role": "assistant", "content": _cached}}]}
+    else:
+        _prompt_hash = None
+
+    resp = await asyncio.to_thread(client.models.generate_content, model=api_model_name, contents=contents, config={"system_instruction": sys_instr})
+    response_text = resp.text
+
+    if _prompt_hash:
+        try:
+            await redis_client.set(f"cache:{_prompt_hash}", response_text, ex=86400)
+        except Exception:
+            pass
+
+    return {"id": chat_id, "object": "chat.completion", "created": created_ts, "model": model_name, "choices": [{"index": 0, "message": {"role": "assistant", "content": response_text}}]}
 
 async def sync_file_to_webui(file_path: str, filename: str):
     if not WEBUI_API_KEY: return
@@ -524,12 +613,14 @@ async def upload_pdf(req: Request, background_tasks: BackgroundTasks, file: Uplo
     with open(path, "wb") as b: b.write(await file.read())
     
     text_content = ""
+    page_count = 0
     with pdfplumber.open(path) as pdf:
+        page_count = len(pdf.pages)
         for p in pdf.pages: text_content += (p.extract_text() or "") + "\n"
-    
+
     db_factory = req.app.state.db_session_factory
     async with db_factory() as session:
-        db_file = UploadedFileModel(id=fid, filename=file.filename, path=path, extracted_text=text_content, page_count=len(pdf.pages))
+        db_file = UploadedFileModel(id=fid, filename=file.filename, path=path, extracted_text=text_content, page_count=page_count)
         session.add(db_file)
         await session.commit()
     
@@ -546,6 +637,20 @@ async def list_files(req: Request):
         res = await session.execute(select(UploadedFileModel))
         files = res.scalars().all()
         return {"files": [{"file_id": f.id, "filename": f.filename} for f in files]}
+
+@app.get("/v1/files/{file_id}", dependencies=[Depends(verify_api_key)])
+async def get_file(file_id: str, req: Request):
+    async with req.app.state.db_session_factory() as session:
+        res = await session.execute(select(UploadedFileModel).where(UploadedFileModel.id == file_id))
+        f = res.scalar_one_or_none()
+        if not f:
+            raise HTTPException(status_code=404, detail="File not found")
+        return {
+            "file_id": f.id,
+            "filename": f.filename,
+            "page_count": f.page_count,
+            "uploaded_at": f.uploaded_at.isoformat() if f.uploaded_at else None,
+        }
 
 @app.delete("/v1/files/{file_id}", dependencies=[Depends(verify_api_key)])
 async def delete_file(file_id: str, req: Request):
