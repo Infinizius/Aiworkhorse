@@ -69,6 +69,26 @@ services:
     command: bash -c "pip install --no-cache-dir -r requirements.txt && python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
+    restart: unless-stopped
+
+  worker:
+    # Background Worker für asynchrone PDF-Verarbeitung & Embeddings (arq)
+    image: python:3.11-slim
+    container_name: ai-workhorse-worker
+    user: "1000:1000"
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+      - ./uploads:/app/uploads
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      POSTGRES_USER: ${POSTGRES_USER:-workhorse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-workhorse_db}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      HOME: /tmp
+    command: bash -c "pip install --no-cache-dir -r requirements.txt && arq worker.WorkerSettings"
     depends_on:
       db:
         condition: service_healthy
@@ -85,6 +105,8 @@ services:
       # Must match API_KEY in the api service – Open WebUI sends this as the Bearer token
       OPENAI_API_KEY: ${API_KEY:-workhorse-local}
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-me-in-production}
+      # Trusted Header Auth for Phase 2 hardening
+      WEBUI_AUTH_TRUSTED_EMAIL_HEADER: X-User-Email
       ENABLE_SIGNUP: "true"
       DEFAULT_MODELS: gemini-3-flash-preview
     volumes:

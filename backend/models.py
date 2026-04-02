@@ -5,10 +5,8 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, relationship
 
-
 class Base(DeclarativeBase):
     pass
-
 
 class UploadedFile(Base):
     __tablename__ = "uploaded_files"
@@ -24,7 +22,6 @@ class UploadedFile(Base):
         "FileEmbedding", back_populates="file", cascade="all, delete-orphan"
     )
 
-
 class FileEmbedding(Base):
     __tablename__ = "file_embeddings"
 
@@ -36,3 +33,15 @@ class FileEmbedding(Base):
     embedding = Column(Vector(768), nullable=True)
 
     file = relationship("UploadedFile", back_populates="embeddings")
+
+class UserConfig(Base):
+    __tablename__ = "user_configs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # User ID or Email from Open WebUI (header X-User-Email)
+    user_id = Column(String(255), nullable=False, index=True)
+    # "gemini", "mistral", or "deepseek"
+    provider = Column(String(50), nullable=False)
+    # The encrypted API key
+    encrypted_key = Column(Text, nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
