@@ -40,6 +40,7 @@ API_KEY = os.getenv("API_KEY", "")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 WEBUI_API_KEY = os.getenv("WEBUI_API_KEY", "")
 WEBUI_INTERNAL_URL = os.getenv("WEBUI_INTERNAL_URL", "http://ai-workhorse-webui:8080")
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
 
 POSTGRES_USER = os.getenv("POSTGRES_USER", "workhorse")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "workhorse_secure_pw")
@@ -49,14 +50,6 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:5432/{POSTGRES_DB}",
 )
-
-# ─── Logging ──────────────────────────────────────────────────────────────────
-# ... (rest of configuration and logging omitted for brevity in this chunk, but I'll keep the actual logic)
-
-# (I will use multi_replace_file_content instead to be safer with large blocks if possible, 
-# but I need to fix the scope issue which is a single contiguous block error)
-
-# Let's use multi_replace_file_content to fix the three separate areas.
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 
@@ -86,6 +79,11 @@ fh = logging.handlers.TimedRotatingFileHandler(
 )
 fh.setFormatter(JSONFormatter())
 logger.addHandler(fh)
+
+# StreamHandler für Docker-Logs ("docker logs ai-workhorse-api")
+sh = logging.StreamHandler()
+sh.setFormatter(JSONFormatter())
+logger.addHandler(sh)
 
 # Thread pool for synchronous Gemini SDK calls
 _thread_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
@@ -582,6 +580,15 @@ def apply_prompt_injection_defense(messages: List[Message]) -> List[dict]:
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 
+@app.get("/readyz", include_in_schema=False)
+async def readiness_probe():
+    """
+    Öffentliche Liveness-Probe für Docker-Healthchecks und Load-Balancer.
+    Kein API-Key erforderlich – gibt nur den Prozessstatus zurück.
+    """
+    return {"status": "ok"}
+
+
 @app.get("/health", dependencies=[Depends(verify_api_key)])
 async def health_check(request: Request):
     """
@@ -644,6 +651,24 @@ async def list_models():
                 "object": "model",
                 "created": 1708000002,
                 "owned_by": "deepseek",
+            },
+            {
+                "id": "mistral-large-latest",
+                "object": "model",
+                "created": 1708000003,
+                "owned_by": "mistral",
+            },
+            {
+                "id": "mistral-small-latest",
+                "object": "model",
+                "created": 1708000004,
+                "owned_by": "mistral",
+            },
+            {
+                "id": "codestral-latest",
+                "object": "model",
+                "created": 1708000005,
+                "owned_by": "mistral",
             }
         ],
     }
@@ -740,6 +765,55 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
                 return resp.json()
 
     # ─── End DeepSeek Integration ───
+
+    # ─── Mistral Integration ───
+    if request.model.startswith("mistral-") or request.model.startswith("codestral-") or request.model.startswith("pixtral-"):
+        if not MISTRAL_API_KEY:
+            raise HTTPException(status_code=503, detail="Mistral API key not configured.")
+        
+        mistral_payload = {
+            "model": request.model,
+            "messages": secure_messages,
+            "stream": request.stream
+        }
+
+        async def mistral_stream_generator():
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                async with client.stream(
+                    "POST",
+                    "https://api.mistral.ai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {MISTRAL_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json=mistral_payload
+                ) as response:
+                    if response.status_code != 200:
+                        err_body = await response.aread()
+                        logger.error(f"Mistral API error: {response.status_code} - {err_body.decode()}")
+                        raise HTTPException(status_code=response.status_code, detail="Mistral API error")
+
+                    async for chunk in response.aiter_bytes():
+                        yield chunk
+
+        if request.stream:
+            return StreamingResponse(mistral_stream_generator(), media_type="text/event-stream")
+        else:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    "https://api.mistral.ai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {MISTRAL_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json=mistral_payload
+                )
+                if resp.status_code != 200:
+                    logger.error(f"Mistral API error: {resp.status_code} - {resp.text}")
+                    raise HTTPException(status_code=resp.status_code, detail="Mistral API error")
+                return resp.json()
+
+    # ─── End Mistral Integration ───
 
     # --- Woche 5-6: RAG-Aware SHA256 Caching ---
     is_rag = bool(request.file_ids and len(request.file_ids) > 0)
