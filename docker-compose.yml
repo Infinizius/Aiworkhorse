@@ -62,6 +62,7 @@ services:
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
       WEBUI_API_KEY: ${WEBUI_API_KEY:-}
       WEBUI_INTERNAL_URL: ${WEBUI_INTERNAL_URL:-http://ai-workhorse-webui:8080}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3002,http://localhost:3001}
       HOME: /tmp
       PATH: /tmp/.local/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
@@ -88,6 +89,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-workhorse_db}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       HOME: /tmp
+      PATH: /tmp/.local/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
     command: bash -c "pip install --no-cache-dir -r requirements.txt && arq worker.WorkerSettings"
     depends_on:
       db:
@@ -108,7 +110,7 @@ services:
       # Trusted Header Auth for Phase 2 hardening
       WEBUI_AUTH_TRUSTED_EMAIL_HEADER: X-User-Email
       ENABLE_SIGNUP: "true"
-      DEFAULT_MODELS: gemini-3-flash-preview
+      DEFAULT_MODELS: gemini-3.1-flash-lite
     volumes:
       - openwebui_data:/app/backend/data
     ports:

@@ -12,6 +12,7 @@ WEBUI_INTERNAL_URL = os.getenv("WEBUI_INTERNAL_URL", "http://ai-workhorse-webui:
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
+CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3002,http://localhost:3001").split(",")
 
 # Database settings
 POSTGRES_USER = os.getenv("POSTGRES_USER", "workhorse")

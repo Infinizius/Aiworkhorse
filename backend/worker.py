@@ -6,21 +6,38 @@ from typing import List
 from arq import create_pool
 from arq.connections import RedisSettings
 from google import genai
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from models import Base, FileEmbedding, UploadedFile as UploadedFileModel
 
-# Configuration
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-POSTGRES_USER = os.getenv("POSTGRES_USER", "workhorse")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "workhorse_secure_pw")
-POSTGRES_HOST = os.getenv("POSTGRES_HOST", "db")
-POSTGRES_DB = os.getenv("POSTGRES_DB", "workhorse_db")
-DATABASE_URL = f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:5432/{POSTGRES_DB}"
+from config import DATABASE_URL, validate_config
+
+# Configuration validation at import for the worker process
+try:
+    validate_config()
+except Exception as e:
+    # Arq logs this if we're running under arq
+    print(f"Worker config validation failed: {e}")
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+async def startup(ctx):
+    """Worker startup hook to validate DB connectivity."""
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        print("Worker: DB connection verified.")
+    except Exception as e:
+        print(f"Worker: DB connection FAILED: {e}")
+        raise
+
+async def shutdown(ctx):
+    """Worker shutdown hook."""
+    await engine.dispose()
+    print("Worker: DB engine disposed.")
 
 def _split_into_chunks(text_content: str, chunk_size: int = 500, overlap: int = 50):
     words = text_content.split()
@@ -76,3 +93,5 @@ async def process_pdf_embedding(ctx, file_id: str, api_key: str = None):
 class WorkerSettings:
     functions = [process_pdf_embedding]
     redis_settings = RedisSettings(host="redis", port=6379)
+    on_startup = startup
+    on_shutdown = shutdown

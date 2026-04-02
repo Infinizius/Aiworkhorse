@@ -30,28 +30,11 @@ from models import Base, FileEmbedding, UserConfig, UploadedFile as UploadedFile
 from security_utils import decrypt_key, encrypt_key
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-REACTIVE_MAX_ITERATIONS = int(os.getenv("REACTIVE_MAX_ITERATIONS", "3"))
-GOAL_MAX_ITERATIONS = int(os.getenv("GOAL_MAX_ITERATIONS", "10"))
-SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
-CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000").split(",")
-# API Key for Bearer-Token authentication (empty = auth disabled for local dev)
-API_KEY = os.getenv("API_KEY", "")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
-WEBUI_API_KEY = os.getenv("WEBUI_API_KEY", "")
-WEBUI_INTERNAL_URL = os.getenv("WEBUI_INTERNAL_URL", "http://ai-workhorse-webui:8080")
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
-# Dedicated encryption key for user-specific API keys (Phase 2).
-ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
-
-POSTGRES_USER = os.getenv("POSTGRES_USER", "workhorse")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "workhorse_secure_pw")
-POSTGRES_HOST = os.getenv("POSTGRES_HOST", "db")
-POSTGRES_DB = os.getenv("POSTGRES_DB", "workhorse_db")
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:5432/{POSTGRES_DB}",
+from config import (
+    API_KEY, GEMINI_API_KEY, ENCRYPTION_KEY, SERPER_API_KEY, DEEPSEEK_API_KEY, 
+    MISTRAL_API_KEY, WEBUI_API_KEY, WEBUI_INTERNAL_URL, DATABASE_URL,
+    REACTIVE_MAX_ITERATIONS, GOAL_MAX_ITERATIONS, CORS_ALLOW_ORIGINS,
+    validate_config
 )
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
@@ -404,7 +387,22 @@ async def update_user_config(config: UserConfigRequest, user_id: str = Depends(g
 
 @app.get("/v1/models")
 async def list_models():
-    return {"object": "list", "data": [{"id": "gemini-2.0-flash", "owned_by": "google"}, {"id": "mistral-large-latest", "owned_by": "mistral"}]}
+    return {
+        "object": "list",
+        "data": [
+            {"id": "gemini-3.1-flash-lite", "owned_by": "google"},
+            {"id": "gemini-3.1-flash", "owned_by": "google"},
+            {"id": "gemini-3.1-pro", "owned_by": "google"},
+            {"id": "gemini-2.5-flash", "owned_by": "google"},
+            {"id": "gemini-2.5-pro", "owned_by": "google"},
+            {"id": "gemma-4-26b-a4b-it", "owned_by": "google"},
+            {"id": "gemma-4-31b-it", "owned_by": "google"},
+            {"id": "deepseek-chat", "owned_by": "deepseek"},
+            {"id": "deepseek-reasoner", "owned_by": "deepseek"},
+            {"id": "mistral-large-latest", "owned_by": "mistral"},
+            {"id": "mistral-small-latest", "owned_by": "mistral"}
+        ]
+    }
 
 @app.post("/v1/tools/approve/{execution_id}", dependencies=[Depends(verify_api_key)])
 async def approve_tool(execution_id: str, req: ToolApprovalRequest):
@@ -419,7 +417,7 @@ async def approve_tool(execution_id: str, req: ToolApprovalRequest):
 @app.post("/v1/chat/completions", dependencies=[Depends(verify_api_key), Depends(check_rate_limit)])
 async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, user_id: str = Depends(get_current_user)):
     secure_messages = apply_prompt_injection_defense(request.messages)
-    model_name = request.model or "gemini-2.0-flash"
+    model_name = request.model or "gemini-3.1-flash-lite"
     
     # Provider routing
     provider = "gemini"
@@ -489,7 +487,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
         def _convert_and_stream():
             try:
                 sys_instr, contents = _convert_messages_for_gemini(msgs)
-                stream = client.models.generate_content_stream(model="gemini-2.0-flash", contents=contents, config={"system_instruction": sys_instr})
+                stream = client.models.generate_content_stream(model=model_name, contents=contents, config={"system_instruction": sys_instr})
                 for chunk in stream:
                     if chunk.text: yield _chunk(chunk.text)
             except Exception as e: yield _chunk(f"Error: {e}")
@@ -500,7 +498,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
     if request.stream: return StreamingResponse(sse_gen(), media_type="text/event-stream")
     sys_instr, contents = _convert_messages_for_gemini(secure_messages)
     if rag_context: sys_instr = (sys_instr or "") + f"\n\nContext:\n{rag_context}"
-    resp = await asyncio.to_thread(client.models.generate_content, model="gemini-2.0-flash", contents=contents, config={"system_instruction": sys_instr})
+    resp = await asyncio.to_thread(client.models.generate_content, model=model_name, contents=contents, config={"system_instruction": sys_instr})
     return {"id": chat_id, "object": "chat.completion", "created": created_ts, "model": model_name, "choices": [{"index": 0, "message": {"role": "assistant", "content": resp.text}}]}
 
 async def sync_file_to_webui(file_path: str, filename: str):
