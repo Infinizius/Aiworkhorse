@@ -352,30 +352,30 @@ async def check_rate_limit(request: Request):
 # ─── Prompt Injection Defense ─────────────────────────────────────────────────
 
 _INJECTION_PATTERNS = [
-    # Direct instruction overrides (Pattern 1-4)
+    # Direct instruction overrides
     r"(?i)ignore\s+(all\s+)?(previous|prior|earlier|above)\s+(instructions?|directives?|rules?|prompts?)",
     r"(?i)ignore\s+instructions",
     r"(?i)disregard\s+(all\s+)?(previous|prior|earlier|above|your)\s+(instructions?|directives?|rules?|prompts?)",
     r"(?i)forget\s+(your\s+)?(instructions?|directives?|rules?|context|everything|prompt)",
-    # System prompt references (Pattern 5-6)
+    # System prompt references
     r"(?i)override\s+(your\s+)?(system\s+)?(prompt|instructions?|rules?)",
     r"(?i)system\s*prompt",
-    # System prompt extraction (Pattern 7)
+    # System prompt extraction
     r"(?i)reveal\s+(your\s+)?(instructions?|system\s*prompt|directives?|rules?|training)",
-    # Jailbreak keywords (Pattern 8-12)
+    # Jailbreak keywords
     r"(?i)\bjailbreak\b",
     r"(?i)\bDAN\b",
     r"(?i)developer\s+mode",
     r"(?i)god\s+mode",
     r"(?i)do\s+anything\s+now",
-    # Role injection (Pattern 13-15)
+    # Role injection
     r"(?i)pretend\s+(you\s+are|to\s+be)",
     r"(?i)you\s+are\s+now\s+(uncensored|unfiltered|unrestricted|free|evil)",
     r"(?i)you\s+are\s+no\s+longer\s+(an?\s+)?(AI|assistant|language\s+model|bot)",
-    # Template injection (Pattern 16-17)
+    # Template injection
     r"(?i)\[INST\]",
     r"(?i)###\s*system",
-    # Additional defense-in-depth patterns (Pattern 18-20)
+    # Additional defense-in-depth patterns
     r"(?i)new\s+(persona|role|instructions?|directives?|system\s*prompt)",
     r"(?i)bypass\s+(safety|security|filter|restriction|guardrail)",
     r"(?i)act\s+as\s+(?:if\s+you\s+(?:are|were)\s+)?(?:uncensored|unrestricted|evil|unfiltered)",
@@ -562,29 +562,34 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
 
     if request.stream: return StreamingResponse(sse_gen(), media_type="text/event-stream")
 
-    # Non-streaming Gemini path with SHA256 Prompt-Caching (Blueprint Rule 6)
-    # Cache is disabled for RAG queries since injected context changes each time.
+    # Non-streaming Gemini path with SHA256 Prompt-Caching (Blueprint Rule 6).
+    # Caching is skipped for RAG queries: injected document context changes each call.
     sys_instr, contents = _convert_messages_for_gemini(secure_messages)
     if rag_context: sys_instr = (sys_instr or "") + f"\n\nContext:\n{rag_context}"
 
-    if not request.file_ids:
-        _cache_input = json.dumps(
+    is_rag = bool(request.file_ids)
+    prompt_hash: Optional[str] = None
+
+    if not is_rag:
+        cache_input = json.dumps(
             {"model": api_model_name, "messages": [{"role": m["role"], "content": m["content"]} for m in secure_messages]},
             sort_keys=True,
         )
-        _prompt_hash = hashlib.sha256(_cache_input.encode()).hexdigest()
-        _cached = await redis_client.get(f"cache:{_prompt_hash}") if redis_client else None
-        if _cached:
-            return {"id": chat_id, "object": "chat.completion", "created": created_ts, "model": model_name, "choices": [{"index": 0, "message": {"role": "assistant", "content": _cached}}]}
-    else:
-        _prompt_hash = None
+        prompt_hash = hashlib.sha256(cache_input.encode()).hexdigest()
+        cached_text = await redis_client.get(f"cache:{prompt_hash}")
+        if cached_text:
+            return {
+                "id": chat_id, "object": "chat.completion", "created": created_ts,
+                "model": model_name,
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": cached_text}}],
+            }
 
     resp = await asyncio.to_thread(client.models.generate_content, model=api_model_name, contents=contents, config={"system_instruction": sys_instr})
     response_text = resp.text
 
-    if _prompt_hash:
+    if prompt_hash:
         try:
-            await redis_client.set(f"cache:{_prompt_hash}", response_text, ex=86400)
+            await redis_client.set(f"cache:{prompt_hash}", response_text, ex=86400)
         except Exception:
             pass
 
