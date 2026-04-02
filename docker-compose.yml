@@ -59,10 +59,12 @@ services:
       # API key for Bearer-Token authentication (must match OPENAI_API_KEY in openwebui)
       API_KEY: ${API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      WEBUI_API_KEY: ${WEBUI_API_KEY:-}
+      WEBUI_INTERNAL_URL: ${WEBUI_INTERNAL_URL:-http://ai-workhorse-webui:8080}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3002,http://localhost:3001}
       HOME: /tmp
     # Hot-Reload für Vibe-Coding
-    command: bash -c "pip install -r requirements.txt && export PATH=\"/tmp/.local/bin:$$PATH\" && export PYTHONPATH=\"/tmp/.local/lib/python3.11/site-packages:$$PYTHONPATH\" && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    command: bash -c "uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
     depends_on:
@@ -77,7 +79,7 @@ services:
     image: ghcr.io/open-webui/open-webui:main
     container_name: ai-workhorse-webui
     environment:
-      OPENAI_API_BASE_URL: http://api:8000/v1
+      OPENAI_API_BASE_URL: http://ai-workhorse-api:8000/v1
       # Must match API_KEY in the api service – Open WebUI sends this as the Bearer token
       OPENAI_API_KEY: ${API_KEY:-workhorse-local}
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-me-in-production}

@@ -17,7 +17,7 @@ import google.generativeai as genai
 import httpx
 import pdfplumber
 import redis.asyncio as redis
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Security, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, Security, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -38,6 +38,8 @@ CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000").sp
 # API Key for Bearer-Token authentication (empty = auth disabled for local dev)
 API_KEY = os.getenv("API_KEY", "")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+WEBUI_API_KEY = os.getenv("WEBUI_API_KEY", "")
+WEBUI_INTERNAL_URL = os.getenv("WEBUI_INTERNAL_URL", "http://ai-workhorse-webui:8080")
 
 POSTGRES_USER = os.getenv("POSTGRES_USER", "workhorse")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "workhorse_secure_pw")
@@ -47,6 +49,14 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:5432/{POSTGRES_DB}",
 )
+
+# ─── Logging ──────────────────────────────────────────────────────────────────
+# ... (rest of configuration and logging omitted for brevity in this chunk, but I'll keep the actual logic)
+
+# (I will use multi_replace_file_content instead to be safer with large blocks if possible, 
+# but I need to fix the scope issue which is a single contiguous block error)
+
+# Let's use multi_replace_file_content to fix the three separate areas.
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 
@@ -669,7 +679,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
             "req_info": {
                 "event": "chat_request",
                 "user_id": user_id,
-                "is_rag": len(request.file_ids) > 0,
+                "is_rag": bool(request.file_ids and len(request.file_ids) > 0),
             }
         },
     )
@@ -728,10 +738,11 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
                     logger.error(f"DeepSeek API error: {resp.status_code} - {resp.text}")
                     raise HTTPException(status_code=resp.status_code, detail="DeepSeek API error")
                 return resp.json()
+
     # ─── End DeepSeek Integration ───
 
     # --- Woche 5-6: RAG-Aware SHA256 Caching ---
-    is_rag = len(request.file_ids) > 0
+    is_rag = bool(request.file_ids and len(request.file_ids) > 0)
     cache_key = None
 
     if not is_rag and not request.stream:
@@ -749,12 +760,12 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
 
     # RAG: Retrieve relevant document chunks for the user's query
     rag_context = ""
-    if is_rag:
+    if is_rag and request.file_ids:
         last_user_msg = next(
             (m["content"] for m in reversed(secure_messages) if m["role"] == "user"),
             "",
         )
-        rag_context = await _get_rag_context(request.file_ids, last_user_msg, req.app)
+        rag_context = await _get_rag_context(request.file_ids or [], last_user_msg, req.app)
 
     gemini_model: genai.GenerativeModel = req.app.state.gemini_model
 
@@ -773,7 +784,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
     # Eindeutige IDs für OpenAI-kompatible Antworten
     chat_id = f"chatcmpl-{uuid.uuid4().hex}"
     created_ts = int(time.time())
-    model_name = request.model
+    model_name = request.model or "gemini-3-flash-preview"
 
     async def sse_generator():
         messages_with_context = list(secure_messages)
@@ -870,6 +881,10 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
         loop = asyncio.get_running_loop()
 
         def _stream_gemini():
+            if model_for_stream is None:
+                loop.call_soon_threadsafe(queue.put_nowait, RuntimeError("Model not initialized"))
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+                return
             try:
                 response = model_for_stream.generate_content(contents, stream=True)
                 for chunk in response:
@@ -941,8 +956,78 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request):
         return response_data
 
 
+async def sync_file_to_webui(file_path: str, filename: str):
+    """
+    Synchronisiert eine hochgeladene Datei mit der Open WebUI Knowledge Base.
+    Wird als Background-Task ausgeführt.
+    """
+    if not WEBUI_API_KEY:
+        logger.warning("No WEBUI_API_KEY configured. Skipping sync.")
+        return
+
+    headers = {"Authorization": f"Bearer {WEBUI_API_KEY}"}
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            # 1. Datei an Open WebUI hochladen
+            with open(file_path, "rb") as f:
+                response = await client.post(
+                    f"{WEBUI_INTERNAL_URL}/api/v1/files/",
+                    headers=headers,
+                    files={"file": (filename, f, "application/pdf")}
+                )
+            
+            if response.status_code != 200:
+                logger.error(f"Sync failed: File upload error {response.status_code}: {response.text}")
+                return
+            
+            file_info = response.json()
+            webui_file_id = file_info.get("id")
+            
+            # 2. Knowledge Base "Workhorse Archive" suchen oder erstellen
+            kb_id = None
+            kb_list_resp = await client.get(f"{WEBUI_INTERNAL_URL}/api/v1/knowledge/", headers=headers)
+            if kb_list_resp.status_code == 200:
+                kbs = kb_list_resp.json()
+                for kb in kbs:
+                    if kb.get("name") == "Workhorse Archive":
+                        kb_id = kb.get("id")
+                        break
+            
+            if not kb_id:
+                # KB erstellen (Version 0.8.x nutzt POST /api/v1/knowledge/create oder similar)
+                create_resp = await client.post(
+                    f"{WEBUI_INTERNAL_URL}/api/v1/knowledge/create",
+                    headers=headers,
+                    json={
+                        "name": "Workhorse Archive", 
+                        "description": "Automated sync from AI-Workhorse Backend."
+                    }
+                )
+                if create_resp.status_code == 200:
+                    kb_id = create_resp.json().get("id")
+            
+            if not kb_id:
+                logger.error("Sync failed: Could not create/find Workhorse Archive Knowledge Base.")
+                return
+
+            # 3. Datei zur Knowledge Base hinzufügen
+            add_resp = await client.post(
+                f"{WEBUI_INTERNAL_URL}/api/v1/knowledge/{kb_id}/file/add",
+                headers=headers,
+                json={"file_id": webui_file_id}
+            )
+            
+            if add_resp.status_code == 200:
+                logger.info(f"Successfully synced file {filename} to Open WebUI Knowledge Base {kb_id}")
+            else:
+                logger.error(f"Sync failed: Could not add file to KB: {add_resp.text}")
+
+        except Exception as e:
+            logger.error(f"Sync process encountered an error: {str(e)}")
+
+
 @app.post("/v1/files/upload", dependencies=[Depends(verify_api_key)])
-async def upload_pdf(req: Request, file: UploadFile = File(...)):
+async def upload_pdf(req: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """
     Dedizierter Upload-Endpoint mit Path-Traversal-Schutz, pdfplumber-Parsing
     und automatischer Vektorisierung via Google text-embedding-004 + pgvector.
@@ -1036,6 +1121,9 @@ async def upload_pdf(req: Request, file: UploadFile = File(...)):
             )
         except Exception as exc:
             logger.error(f"Embedding/DB insert failed for file {file_id}: {exc}")
+
+    # Synchronisation mit Open WebUI im Hintergrund starten
+    background_tasks.add_task(sync_file_to_webui, file_path, file.filename)
 
     return {
         "file_id": file_id,
