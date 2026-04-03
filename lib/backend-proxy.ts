@@ -9,8 +9,22 @@ const FORWARDED_REQUEST_HEADERS = [
   'content-type',
   'range',
   'x-request-id',
-  'x-user-email',
 ] as const;
+
+function getCookieValue(cookieHeader: string | null, name: string): string | null {
+  if (!cookieHeader) {
+    return null;
+  }
+
+  for (const cookie of cookieHeader.split(';')) {
+    const [rawName, ...rawValue] = cookie.trim().split('=');
+    if (rawName === name) {
+      return decodeURIComponent(rawValue.join('='));
+    }
+  }
+
+  return null;
+}
 
 function buildTargetUrl(pathname: string, requestUrl: string): URL {
   const targetUrl = new URL(pathname, NORMALIZED_INTERNAL_API_URL);
@@ -26,6 +40,13 @@ function buildForwardHeaders(request: Request): Headers {
     if (value) {
       headers.set(headerName, value);
     }
+  }
+
+  const forwardedUserEmail =
+    request.headers.get('x-user-email') ??
+    getCookieValue(request.headers.get('cookie'), 'workhorse_user_email');
+  if (forwardedUserEmail) {
+    headers.set('x-user-email', forwardedUserEmail);
   }
 
   if (SERVER_API_KEY) {

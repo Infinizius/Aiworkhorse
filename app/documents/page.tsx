@@ -7,6 +7,8 @@ import { ArrowLeft, FileText, Trash2, RefreshCw, Calendar, Layers, Eye, EyeOff, 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api/backend';
 
 function apiHeaders(): HeadersInit {
+  // Auth is injected by the server-side dashboard proxy; user identity may be
+  // forwarded there from trusted same-origin headers/cookies.
   return {};
 }
 
