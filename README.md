@@ -41,7 +41,7 @@ Hier trifft ein ultra-kompatibles OpenAI-Interface auf ein eigens gehärtetes Ba
 
 ## 🏗️ Systemarchitektur (v1.1 + Phase-2 Foundation)
 
-Das Zusammenspiel von 6 Core-Containern (+ optionalem Caddy im Prod-Profil) garantiert maximale Ausfallsicherheit:
+Das Zusammenspiel von 7 Core-Containern (+ optionalem Caddy im Prod-Profil) garantiert maximale Ausfallsicherheit:
 
 ```mermaid
 flowchart TD
@@ -49,6 +49,8 @@ flowchart TD
     
     subgraph Frontend [UI Layer]
         Caddy -- "HTTP" --> WebUI(Open WebUI\nPort 3002)
+        User -- "HTTP (3001)" --> Dashboard(Next.js Dashboard\nPort 3001)
+        Dashboard -- "Proxy /api" --> API
     end
     
     subgraph Backend [AI Engine Layer]
@@ -93,8 +95,9 @@ docker compose up -d
 ```
 
 - 💬 **Chat UI:** [http://localhost:3002](http://localhost:3002)
-- ⚙️ **API Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
-- 🩺 **Health:** [http://localhost:8000/health](http://localhost:8000/health)
+- 📊 **Dashboard:** [http://localhost:3001](http://localhost:3001)
+- ⚙️ **API Docs (via Dashboard-Proxy):** [http://localhost:3001/docs](http://localhost:3001/docs)
+- 🩺 **Health (via Dashboard-Proxy):** [http://localhost:3001/health](http://localhost:3001/health)
 
 ### 3. Nutzerspezifische Keys konfigurieren
 
@@ -104,15 +107,13 @@ Sende einen POST-Request an `/v1/user/config`, um deine eigenen API-Keys zu hint
 
 ### 4. Phase-2 Goal-Engine (optional)
 
-Persistente Ziele können über `POST /v1/goals` angelegt und über `GET /v1/goals` bzw. `GET /v1/goals/{goal_id}` überwacht werden.  
+Persistente Ziele können über `POST /v1/goals` angelegt und über `GET /v1/goals` bzw. `GET /v1/goals/{goal_id}` überwacht werden.
 Der separate `goal-engine`-Service pollt fällige Tasks, nutzt FastAPI als internen Tool-Server und speichert Zwischenschritte per LangGraph/Postgres-Checkpointing.
 
 ### 5. Next.js-Dashboard (optional)
 
 Das Dashboard läuft auf Port 3001 und zeigt Service-Status, verfügbare Modelle und hochgeladene Dokumente.  
-Wenn `API_KEY` gesetzt ist, muss `NEXT_PUBLIC_API_KEY` in der `.env` auf denselben Wert gesetzt werden, damit das Dashboard die API erreichen kann.
-
-> **Sicherheitshinweis:** `NEXT_PUBLIC_API_KEY` ist im Browser-Bundle sichtbar. Nur für private Netzwerke / lokalen Betrieb empfohlen.
+Es spricht ausschließlich über einen serverseitigen Proxy mit dem FastAPI-Backend; Port 8000 wird nicht mehr auf dem Host veröffentlicht.
 
 ---
 
@@ -148,7 +149,7 @@ GESAMTSTATUS                   ████████████████�
 - v1.1-Kernfeatures verifiziert: User-Keys, arq-Worker, Redis-HITL, Multi-Provider-Routing und Open-WebUI-Kompatibilität sind vorhanden.
 - Phase-2-Basis ergänzt: `GoalTask`-Persistenz, `/v1/goals`, `/internal/tools/execute` und separater `goal-engine`-Daemon sind vorhanden.
 - Runtime-Härtung ergänzt: Graceful Shutdown schließt Redis- und arq-Verbindungen jetzt explizit.
-- Verifiziert mit `npm run lint`, `npm run build` und `python3 -m pytest tests -v` (45/45 Backend-Tests grün).
+- Verifiziert mit `npm run lint`, `npm run build` und `python3 -m pytest tests -v` (53/53 Backend-Tests grün).
 
 > **Bekannte Limitierungen (non-blocking):** DuckDuckGo-Fallback nicht implementiert (nur Serper), der normale User-Chat nutzt weiterhin die `"search"`-Heuristik statt echtes Function Calling, SSE blockiert im Streaming-Pfad noch den Event-Loop. Diese Punkte bleiben für die nächste Phase-2-Ausbaustufe offen.
 
