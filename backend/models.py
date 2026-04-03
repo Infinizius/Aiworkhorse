@@ -46,3 +46,25 @@ class UserConfig(Base):
     # The encrypted API key
     encrypted_key = Column(Text, nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class GoalTask(Base):
+    __tablename__ = "goal_tasks"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(255), nullable=False, index=True)
+    goal = Column(Text, nullable=False)
+    model = Column(String(100), nullable=False, default="gemini-3-flash-preview")
+    status = Column(String(32), nullable=False, default="pending", index=True)
+    schedule_minutes = Column(Integer, nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
+    last_run_at = Column(DateTime, nullable=True)
+    last_result = Column(Text, nullable=True)
+    last_error = Column(Text, nullable=True)
+    run_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )

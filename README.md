@@ -1,6 +1,6 @@
 <div align="center">
   
-# 🤖 AI-Workhorse v1.1 (Hardened)
+# 🤖 AI-Workhorse v1.1 + Phase-2 Foundation
 
 **Die DSGVO-konforme KI-Assistenz-Plattform mit Multi-Model Support & absoluter Datenkontrolle**
 
@@ -16,17 +16,17 @@
 ---
 
 ![Open WebUI Chat Interface](assets/chat_ui.png)
-*(v1.1 Hardened: Nutzerspezifische Keys, Asynchrones PDF-Processing & persistentes HITL sind aktiv!)*
+*(v1.1 Hardened + Phase 2 Foundation: Nutzerspezifische Keys, asynchrones PDF-Processing, persistentes HITL und die Goal-Engine-Basis sind aktiv!)*
 
 </div>
 
 <br>
 
-> **AI-Workhorse v1.1** hebt die Plattform auf Enterprise-Niveau. Durch die Einführung von **nutzerspezifischen API-Keys (Fernet: AES-128-CBC + HMAC-SHA256)**, **asynchroner PDF-Verarbeitung (arq Worker)** und **persistenter Tool-Freigaben (Redis)** bietet v1.1 maximale Skalierbarkeit bei absoluter Datensouveränität.
+> **AI-Workhorse v1.1 + Phase-2 Foundation** hebt die Plattform auf Enterprise-Niveau. Neben **nutzerspezifischen API-Keys (Fernet: AES-128-CBC + HMAC-SHA256)**, **asynchroner PDF-Verarbeitung (arq Worker)** und **persistenten Tool-Freigaben (Redis)** ist jetzt auch die Basis für eine **autonome Goal-Engine** mit persistenten Tasks, internem Tool-Server und separatem Daemon vorhanden.
 
 ---
 
-## ✨ Premium Features (v1.1 Hardened)
+## ✨ Premium Features (v1.1 Hardened + Phase-2 Foundation)
 
 Hier trifft ein ultra-kompatibles OpenAI-Interface auf ein eigens gehärtetes Backend.
 
@@ -35,12 +35,13 @@ Hier trifft ein ultra-kompatibles OpenAI-Interface auf ein eigens gehärtetes Ba
 | **User-Specific API Keys**<br>Speicherung von Anbieter-Keys (Gemini/Mistral/DS) – Fernet-verschlüsselt (AES-128-CBC) in der DB. | **Asynchronous PDF Processing**<br>Hintergrund-Vektorisierung via `arq` Worker für verzögerungsfreie Uploads. | **Persistent HITL (Redis)**<br>Tool-Freigaben überleben Server-Restarts und skalieren über mehrere Instanzen. |
 | **Dreistufige Injection-Defense**<br>Regex, Unicode-Normalisierung & System-Anker. | **google-genai SDK**<br>Neues Google SDK für maximale Performance und Zugriff auf neueste Modelle. | **RAG-Aware Caching**<br>SHA256 Prompt-Caching in Redis reduziert API-Kosten für identische Anfragen. |
 | **Souveräne Identität**<br>Header-basierte Nutzer-Erkennung (X-User-Email) via Open WebUI Proxy. | **Multi-Model Routing**<br>Dynamisches Key-Routing pro User & Provider (Gemini/Mistral/DeepSeek). | **Automatisches HTTPS**<br>Caddy Reverse Proxy mit Let's Encrypt für VPS. |
+| **Autonome Goal-Tasks**<br>`/v1/goals` speichert geplante oder einmalige Ziele persistent in Postgres. | **Interner Tool-Server**<br>`/internal/tools/execute` vermeidet Tool-Code-Duplizierung zwischen API und Daemon. | **Goal-Engine Daemon**<br>Separater LangGraph-Worker mit Postgres-Checkpointing und `X-Source: goal-engine` Guard. |
 
 ---
 
-## 🏗️ Systemarchitektur (v1.1)
+## 🏗️ Systemarchitektur (v1.1 + Phase-2 Foundation)
 
-Das Zusammenspiel von 7 isolierten Docker-Containern garantiert maximale Ausfallsicherheit:
+Das Zusammenspiel von 7 Core-Containern (+ optionalem Caddy im Prod-Profil) garantiert maximale Ausfallsicherheit:
 
 ```mermaid
 flowchart TD
@@ -55,6 +56,8 @@ flowchart TD
     subgraph Backend [AI Engine Layer]
         WebUI -- "REST /v1\nBearer Token" --> API{FastAPI Backend\nPort 8000}
         API -- "Queue Jobs" --> Worker(arq Worker\nBackground Tasks)
+        GoalEngine(LangGraph Goal Engine\nBackground Daemon) -- "POST /internal/tools/execute" --> API
+        GoalEngine -- "Checkpointing / GoalTasks" --> Postgres
     end
     
     subgraph Data [Storage & Cache]
@@ -102,7 +105,12 @@ Sende einen POST-Request an `/v1/user/config`, um deine eigenen API-Keys zu hint
 
 > **Hinweis:** Die Keys werden mit Fernet (AES-128-CBC + HMAC-SHA256) verschlüsselt gespeichert. Der `ENCRYPTION_KEY` in der `.env` ist zwingend erforderlich.
 
-### 4. Next.js-Dashboard (optional)
+### 4. Phase-2 Goal-Engine (optional)
+
+Persistente Ziele können über `POST /v1/goals` angelegt und über `GET /v1/goals` bzw. `GET /v1/goals/{goal_id}` überwacht werden.
+Der separate `goal-engine`-Service pollt fällige Tasks, nutzt FastAPI als internen Tool-Server und speichert Zwischenschritte per LangGraph/Postgres-Checkpointing.
+
+### 5. Next.js-Dashboard (optional)
 
 Das Dashboard läuft auf Port 3001 und zeigt Service-Status, verfügbare Modelle und hochgeladene Dokumente.  
 Es spricht ausschließlich über einen serverseitigen Proxy mit dem FastAPI-Backend; Port 8000 wird nicht mehr auf dem Host veröffentlicht.
@@ -120,7 +128,7 @@ Es spricht ausschließlich über einen serverseitigen Proxy mit dem FastAPI-Back
 
 ---
 
-## 🗺️ GESAMTSTATUS v1.1
+## 🗺️ GESAMTSTATUS v1.1 + Phase-2 Foundation
 
 ```text
 Infrastruktur (Docker/Worker)  ███████████████████████  100% ✅
@@ -130,23 +138,24 @@ Persistent HITL (Redis)        ████████████████�
 Async PDF Pipeline (arq)       ███████████████████████  100% ✅
 API/Frontend Kompatibilität    ███████████████████████  100% ✅  (BUG-04–07 behoben, Audit Apr 2026)
 Sicherheit & Robustheit        ███████████████████████  100% ✅  (BUG-08–15 behoben, Audit Apr 2026)
+Phase-2 Goal Foundation        ████████████████████░░░   85% ✅  (`/v1/goals`, GoalTask, interner Tool-Server, Daemon)
 ─────────────────────────────────────────────────────────────────
-GESAMTSTATUS v1.1              ███████████████████████  100% GEHÄRTET
+GESAMTSTATUS                   █████████████████████░░   ~96%  v1.1 gehärtet + Phase-2-Basis aktiv
 ```
 
 ## 🔎 Audit-Check (April 2026)
 
 - Meilenstein 1–9 gegen Code, Docker-Setup, Migrationen und Tests geprüft: umgesetzt.
 - v1.1-Kernfeatures verifiziert: User-Keys, arq-Worker, Redis-HITL, Multi-Provider-Routing und Open-WebUI-Kompatibilität sind vorhanden.
-- Dokumentation korrigiert: Fernet-Wording vereinheitlicht; Web-Search ist korrekt als Serper-only mit DuckDuckGo in Phase 2 beschrieben.
+- Phase-2-Basis ergänzt: `GoalTask`-Persistenz, `/v1/goals`, `/internal/tools/execute` und separater `goal-engine`-Daemon sind vorhanden.
 - Runtime-Härtung ergänzt: Graceful Shutdown schließt Redis- und arq-Verbindungen jetzt explizit.
-- Verifiziert mit `npm run lint`, `npm run build` und `python3 -m pytest tests -v` (40/40 Backend-Tests grün).
+- Verifiziert mit `npm run lint`, `npm run build` und `python3 -m pytest tests -v` (46/46 Backend-Tests grün).
 
-> **Bekannte Limitierungen (non-blocking):** DuckDuckGo-Fallback nicht implementiert (nur Serper), HITL-Trigger-Heuristik (`"search"`-Keyword) zu breit (False Positives; Re-Trigger nach Tool-Call mit BUG-08 behoben), SSE blockiert Event-Loop bei Streaming. Alle für Phase 2 vorgesehen.
+> **Bekannte Limitierungen (non-blocking):** DuckDuckGo-Fallback nicht implementiert (nur Serper), der normale User-Chat nutzt weiterhin die `"search"`-Heuristik statt echtes Function Calling, SSE blockiert im Streaming-Pfad noch den Event-Loop. Diese Punkte bleiben für die nächste Phase-2-Ausbaustufe offen.
 
 ---
 
 <div align="center">
   <br>
-  <b>AI-Workhorse v1.1</b> – Gebaut mit ❤️ für Enterprise KI-Souveränität
+  <b>AI-Workhorse v1.1 + Phase-2 Foundation</b> – Gebaut mit ❤️ für Enterprise KI-Souveränität
 </div>
