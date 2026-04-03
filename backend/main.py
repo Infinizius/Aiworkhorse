@@ -296,7 +296,8 @@ def _split_into_chunks(text_content: str, chunk_size: int = 500, overlap: int = 
 async def _get_rag_context(
     file_ids: List[str], query: str, app_instance: FastAPI, user_id: str, top_k: int = 5
 ):
-    if not getattr(app_instance.state, "db_session_factory", None): return ""
+    if not getattr(app_instance.state, "db_session_factory", None):
+        return ""
     try:
         client: genai.Client = app_instance.state.gemini_client
         response = await asyncio.to_thread(
@@ -752,5 +753,6 @@ async def delete_file(file_id: str, req: Request, user_id: str = Depends(get_cur
 async def download_file(file_id: str, req: Request, user_id: str = Depends(get_current_user)):
     async with req.app.state.db_session_factory() as session:
         f = await _get_owned_file(session, file_id, user_id)
-        if not f: raise HTTPException(status_code=404)
+        if not f:
+            raise HTTPException(status_code=404)
         return FileResponse(path=f.path, filename=f.filename)
