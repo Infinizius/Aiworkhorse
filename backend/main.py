@@ -243,6 +243,32 @@ async def _get_user_api_key(user_id: str, provider: str, app_instance: FastAPI) 
         logger.error(f"Failed to lookup user API key: {exc}")
     return None
 
+
+async def _get_owned_file(
+    session: AsyncSession, file_id: str, user_id: str
+) -> Optional[UploadedFileModel]:
+    res = await session.execute(
+        select(UploadedFileModel).where(
+            UploadedFileModel.id == file_id,
+            UploadedFileModel.user_id == user_id,
+        )
+    )
+    return res.scalar_one_or_none()
+
+
+async def _get_accessible_file_ids(
+    session: AsyncSession, file_ids: List[str], user_id: str
+) -> List[str]:
+    if not file_ids:
+        return []
+    res = await session.execute(
+        select(UploadedFileModel.id).where(
+            UploadedFileModel.user_id == user_id,
+            UploadedFileModel.id.in_(file_ids),
+        )
+    )
+    return list(res.scalars().all())
+
 def _convert_messages_for_gemini(messages: List[dict]):
     system_instruction: Optional[str] = None
     contents: List[dict] = []
@@ -267,7 +293,9 @@ def _split_into_chunks(text_content: str, chunk_size: int = 500, overlap: int = 
         i += chunk_size - overlap
     return chunks
 
-async def _get_rag_context(file_ids: List[str], query: str, app_instance: FastAPI, top_k: int = 5):
+async def _get_rag_context(
+    file_ids: List[str], query: str, app_instance: FastAPI, user_id: str, top_k: int = 5
+):
     if not getattr(app_instance.state, "db_session_factory", None): return ""
     try:
         client: genai.Client = app_instance.state.gemini_client
@@ -279,9 +307,12 @@ async def _get_rag_context(file_ids: List[str], query: str, app_instance: FastAP
         )
         query_vec = response.embeddings[0].values
         async with app_instance.state.db_session_factory() as session:
+            accessible_file_ids = await _get_accessible_file_ids(session, file_ids, user_id)
+            if not accessible_file_ids:
+                return ""
             rows = await session.execute(
                 select(FileEmbedding)
-                .where(FileEmbedding.file_id.in_(file_ids))
+                .where(FileEmbedding.file_id.in_(accessible_file_ids))
                 .order_by(FileEmbedding.embedding.cosine_distance(query_vec))
                 .limit(top_k)
             )
@@ -514,7 +545,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
     rag_context = ""
     if request.file_ids:
         last_msg = next((m["content"] for m in reversed(secure_messages) if m["role"] == "user"), "")
-        rag_context = await _get_rag_context(request.file_ids, last_msg, req.app)
+        rag_context = await _get_rag_context(request.file_ids, last_msg, req.app, user_id)
 
     client = genai.Client(api_key=api_key) if api_key != GEMINI_API_KEY else req.app.state.gemini_client
     chat_id, created_ts = f"chatcmpl-{uuid.uuid4().hex}", int(time.time())
@@ -643,7 +674,14 @@ async def upload_pdf(req: Request, background_tasks: BackgroundTasks, file: Uplo
 
     db_factory = req.app.state.db_session_factory
     async with db_factory() as session:
-        db_file = UploadedFileModel(id=fid, filename=file.filename, path=path, extracted_text=text_content, page_count=page_count)
+        db_file = UploadedFileModel(
+            id=fid,
+            user_id=user_id,
+            filename=file.filename,
+            path=path,
+            extracted_text=text_content,
+            page_count=page_count,
+        )
         session.add(db_file)
         await session.commit()
     
@@ -655,9 +693,11 @@ async def upload_pdf(req: Request, background_tasks: BackgroundTasks, file: Uplo
     return {"file_id": fid, "status": "processing", "message": "File uploaded and enqueued for embedding."}
 
 @app.get("/v1/files", dependencies=[Depends(verify_api_key)])
-async def list_files(req: Request):
+async def list_files(req: Request, user_id: str = Depends(get_current_user)):
     async with req.app.state.db_session_factory() as session:
-        res = await session.execute(select(UploadedFileModel))
+        res = await session.execute(
+            select(UploadedFileModel).where(UploadedFileModel.user_id == user_id)
+        )
         files = res.scalars().all()
         # Count embeddings per file
         file_ids = [f.id for f in files]
@@ -685,10 +725,9 @@ async def list_files(req: Request):
         return {"files": result, "total": len(result)}
 
 @app.get("/v1/files/{file_id}", dependencies=[Depends(verify_api_key)])
-async def get_file(file_id: str, req: Request):
+async def get_file(file_id: str, req: Request, user_id: str = Depends(get_current_user)):
     async with req.app.state.db_session_factory() as session:
-        res = await session.execute(select(UploadedFileModel).where(UploadedFileModel.id == file_id))
-        f = res.scalar_one_or_none()
+        f = await _get_owned_file(session, file_id, user_id)
         if not f:
             raise HTTPException(status_code=404, detail="File not found")
         return {
@@ -699,11 +738,10 @@ async def get_file(file_id: str, req: Request):
         }
 
 @app.delete("/v1/files/{file_id}", dependencies=[Depends(verify_api_key)])
-async def delete_file(file_id: str, req: Request):
+async def delete_file(file_id: str, req: Request, user_id: str = Depends(get_current_user)):
     async with req.app.state.db_session_factory() as session:
         # BUG-10 fix: verify file exists before attempting delete
-        res = await session.execute(select(UploadedFileModel).where(UploadedFileModel.id == file_id))
-        if res.scalar_one_or_none() is None:
+        if await _get_owned_file(session, file_id, user_id) is None:
             raise HTTPException(status_code=404, detail="File not found")
         await session.execute(delete(FileEmbedding).where(FileEmbedding.file_id == file_id))
         await session.execute(delete(UploadedFileModel).where(UploadedFileModel.id == file_id))
@@ -711,9 +749,8 @@ async def delete_file(file_id: str, req: Request):
     return {"status": "deleted"}
 
 @app.get("/v1/files/{file_id}/download", dependencies=[Depends(verify_api_key)])
-async def download_file(file_id: str, req: Request):
+async def download_file(file_id: str, req: Request, user_id: str = Depends(get_current_user)):
     async with req.app.state.db_session_factory() as session:
-        res = await session.execute(select(UploadedFileModel).where(UploadedFileModel.id == file_id))
-        f = res.scalar_one_or_none()
+        f = await _get_owned_file(session, file_id, user_id)
         if not f: raise HTTPException(status_code=404)
         return FileResponse(path=f.path, filename=f.filename)
