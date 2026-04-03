@@ -29,70 +29,78 @@
 
 ---
 
-## 2. Aktueller Entwicklungsstand
+## 2. Aktueller Entwicklungsstand (v1.1 Hardened)
 
 ### 2.1 Implementiert und funktionsfähig ✅
 
 | Komponente | Status | Anmerkung |
 |---|---|---|
 | FastAPI-Backend-Grundstruktur | ✅ Fertig | Endpoints definiert, Pydantic-Modelle vorhanden |
-| Strukturiertes JSON-Logging (JSONL) | ✅ Fertig | ISO-8601-Zeitstempel, Request-Kontext |
-| Token-Bucket Rate Limiter | ✅ Fertig | 10 Req/Min/IP via Redis |
-| Dreistufige Prompt-Injection-Defense | ✅ Fertig | Unicode-Normalisierung + System-Anker + Regex |
-| HITL Freigabe-System + SSE-Heartbeat | ✅ Fertig | 60s Timeout, Memory-Leak-Schutz im finally-Block |
+| Strukturiertes JSON-Logging (JSONL) | ✅ Fertig | ISO-8601-Zeitstempel, Request-Kontext, Log-Rotation (7 Tage) |
+| Token-Bucket Rate Limiter | ✅ Fertig | 10 Req/Min/User via Redis; Token-Hash bevorzugt |
+| Dreistufige Prompt-Injection-Defense | ✅ Fertig | Unicode-Normalisierung + System-Anker + 20 Regex-Pattern |
+| HITL Freigabe-System + SSE-Heartbeat | ✅ Fertig | 60s Timeout, Redis-persistent (überlebt Restarts) |
 | PDF-Upload mit Path-Traversal-Schutz | ✅ Fertig | UUID-Dateinamen, pdfplumber-Parsing |
 | SHA256-Prompt-Caching (Redis, 24h TTL) | ✅ Fertig | Nur für Non-RAG-Queries |
 | Next.js-Dashboard | ✅ Fertig | Statusseite mit Service-Links und Feature-Übersicht |
-| Dokumente-Seite (`/documents`) | ✅ Fertig | Liste, Vorschau, Löschen, Download |
+| Dokumente-Seite (`/documents`) | ✅ Fertig | Liste (mit chunks/Vorschau), Löschen, Download (auth-aware) |
 | TailwindCSS v4-Setup | ✅ Fertig | PostCSS konfiguriert |
 | `useIsMobile`-Hook | ✅ Fertig | SSR-sicher, 768px-Breakpoint |
 | `cn()`-Utility (clsx + tailwind-merge) | ✅ Fertig | Standard-Helfer |
-| Docker-Compose (5 Services) | ✅ Fertig | db, redis, api, openwebui, caddy – mit Volumes und Healthchecks |
+| Docker-Compose (6 Services) | ✅ Fertig | db, redis, api, worker, openwebui, caddy – mit Volumes und Healthchecks |
 | Caddy HTTPS Reverse Proxy | ✅ Fertig | `--profile prod` – automatisches TLS via Let's Encrypt |
 | Backup-Skript (`backup.sh`) | ✅ Fertig | pg_dump + tar für uploads |
 | Sync-Skript (`sync.sh`) | ✅ Fertig | Tablet-freundlicher Git-Push |
 | Dev-Container (VSCode) | ✅ Fertig | Python 3.11, Extensions, psql-Client |
-| Alembic-Konfiguration | ✅ Fertig | Verbindung zu PostgreSQL hinterlegt |
+| Alembic-Konfiguration | ✅ Fertig | Auto-Run beim Start (`lifespan`); exclude_tables für LangGraph |
 | **API-Key-Authentifizierung** | ✅ Fertig | Bearer Token; `verify_api_key`-Dependency; Auth deaktivierbar (Dev) |
 | **Token-basiertes Rate-Limiting** | ✅ Fertig | `_get_user_id()` bevorzugt Token-Hash vor Client-IP; X-Forwarded-For-Support |
 | **Erweiterte Prompt-Injection-Defense** | ✅ Fertig | 20 Patterns: Overrides, Jailbreaks, Role-Injection, Template-Injection |
-| **SQLAlchemy ORM-Modelle** | ✅ Fertig | `UploadedFile`, `FileEmbedding` in `models.py` |
-| **Alembic-Erstmigration** | ✅ Fertig | `0001_initial_schema.py` – pgvector Extension + Tabellen |
+| **SQLAlchemy ORM-Modelle** | ✅ Fertig | `UploadedFile`, `FileEmbedding`, `UserConfig` in `models.py` |
+| **Alembic-Migrationen** | ✅ Fertig | 3 Migrationen: Initial-Schema, UserConfig, IVFFlat-Index-Fix |
 | **RAG-Pipeline** | ✅ Fertig | Chunking, `text-embedding-004`, pgvector-Insert und -Suche |
-| **Document Management API** | ✅ Fertig | GET/DELETE/Download für hochgeladene Dateien |
-| **Web-Search Tool** | ✅ Fertig | Serper API (primär) + DuckDuckGo (Fallback) |
+| **Document Management API** | ✅ Fertig | GET (mit chunks/preview/total)/DELETE/Download für hochgeladene Dateien |
+| **Web-Search Tool** | ✅ Fertig | Serper API (primär) |
 | **Open WebUI** | ✅ Fertig | Chat-UI auf Port 3002, OpenAI-API-kompatibel |
 | **REACTIVE_MAX_ITERATIONS** | ✅ Fertig | Aus `.env` gelesen, in Chat-Loop verwendet |
 | **GOAL_MAX_ITERATIONS** | ✅ Fertig | Aus `.env` gelesen (für Phase-2 Goal-Engine vorbereitet) |
 | **Metadaten/Titel** | ✅ Fertig | `layout.tsx` und `metadata.json` korrekt befüllt |
+| **Health-Endpoint `GET /health`** | ✅ Fertig | DB + Redis Verbindung geprüft (M7) |
+| **Readiness-Probe `GET /readyz`** | ✅ Fertig | Kein API-Key nötig, für Docker-Healthchecks (M7) |
+| **RFC 7807 Error-Format** | ✅ Fertig | Konsistente Fehlerstruktur mit `type`, `title`, `status`, `request_id` |
+| **Request-ID Middleware** | ✅ Fertig | UUIDv4 per Request; `X-Request-ID`-Header in Response |
+| **Backend-Tests (pytest)** | ✅ Fertig | 39 Tests: health, security (auth + injection + rate-limit), chat-routing, models |
+| **arq Worker** | ✅ Fertig | Asynchrone PDF-Embedding-Verarbeitung im Hintergrund |
+| **Nutzerspezifische API-Keys** | ✅ Fertig | AES/Fernet-verschlüsselt in DB; Routing per User & Provider |
+| **`google-genai` SDK** | ✅ Fertig | Migration auf neues Google SDK; Streaming + Non-Streaming |
+| **Multi-Model Routing** | ✅ Fertig | Dynamisches Key-Routing pro User & Provider (Gemini/Mistral/DeepSeek) |
 
-### 2.2 Unvollständig oder ausstehend ⚠️
+### 2.2 Bekannte Limitierungen & offene Punkte ⚠️
 
 | Komponente | Problem | Priorität |
 |---|---|---|
-| API-Authentifizierung (API-Key) | ✅ Implementiert (Bearer Token, M6) | 🟠 Hoch |
-| ESLint im Build | `ignoreDuringBuilds: false` – ESLint aktiv (M6) | ✅ Behoben |
-| Prompt-Injection-Pattern | Regex-Liste klein (5 Pattern); L33tspeak / Leerzeichen-Bypass möglich | 🟡 Mittel |
-| Health-Endpoint `GET /health` | Nicht vorhanden – DB + Redis Verbindung nicht prüfbar | 🟡 Mittel |
-| Alembic automatisch beim Start | `alembic upgrade head` muss manuell ausgeführt werden | 🟡 Mittel |
-| Log-Rotation | JSONL-Datei wächst unbegrenzt | 🟡 Mittel |
-| Tests | **Null** Test-Dateien vorhanden | 🟡 Mittel |
+| DuckDuckGo-Fallback | `tool_web_search()` hat keinen echten Fallback – bei Serper-Fehler wird nur ein Fehlerstring zurückgegeben (ROADMAP-Claim war falsch) | 🟡 Mittel |
+| HITL-Trigger | `"search" in message.lower()` ist ein zu breites Heuristikum (False Positives bei Wörtern wie "searching") | 🟡 Mittel |
+| SSE-Streaming Event Loop | `_convert_and_stream()` (sync Generator) wird direkt in async `sse_gen()` iteriert → blockiert Event Loop | 🟡 Mittel |
+| Redis-Verbindung nicht geschlossen | `redis_client` (Modul-Level) wird im `lifespan`-Shutdown nicht explizit geschlossen | 🟡 Niedrig |
+| Fernet ist kein AES-256 | Fernet nutzt AES-128-CBC; README-Claim "AES-256" ist technisch ungenau | 🟡 Niedrig |
+| NEXT_PUBLIC_API_KEY im Browser | Dashboard-Frontend nutzt `NEXT_PUBLIC_API_KEY` – Key im Browser-Bundle sichtbar; nur für private Netzwerke akzeptabel | 🟡 Niedrig |
 | CI/CD-Pipeline | Keine GitHub Actions, kein automatisches Deployment | 🔵 Phase 2 |
-| JWT Rate-Limiting | Rate-Limiting nutzt Token-Hash statt roher IP (M6) | ✅ Behoben |
+| JWT-Authentifizierung | Übergang von statischem API-Key zu dynamischen Token für Phase 2 geplant | 🔵 Phase 2 |
 | LangGraph-Agenten | Für Phase 2 geplant (`GOAL_MAX_ITERATIONS`) | 🔵 Phase 2 |
 
-### 2.3 Gesamtfortschritt
+### 2.3 Gesamtfortschritt (v1.1)
 
 ```
-Infrastruktur      ██████████████████████  ~95%  (Caddy HTTPS, 5 Services)
-Backend-Logik      █████████████████░░░░░  ~80%  (Gemini, RAG, HITL – kein JWT)
-Frontend / UI      ███████████░░░░░░░░░░░  ~55%  (Dashboard + Dokumente-Seite)
-RAG-Pipeline       ████████████████████░░  ~90%  (Upload, Embed, Retrieve, Inject)
-Sicherheit         ████████████████░░░░░░  ~75%  (kein JWT, schwache Injection-Pattern)
-Tests              ░░░░░░░░░░░░░░░░░░░░░░   ~0%
-Dokumentation      █████████████████░░░░░  ~75%  (README, ROADMAP, Swagger)
-─────────────────────────────────────────────────
-Gesamt (MVP)       █████████████░░░░░░░░░  ~55%
+Infrastruktur      ███████████████████████  ~100%  (Caddy HTTPS, 6 Services, arq Worker)
+Backend-Logik      ████████████████████░░░   ~90%  (Gemini/Mistral/DS, RAG, HITL, UserKeys)
+Frontend / UI      ████████████████████░░░   ~90%  (Dashboard + Dokumente-Seite, auth-aware)
+RAG-Pipeline       ████████████████████░░░   ~90%  (Upload, Embed async, Retrieve, Inject)
+Sicherheit         ████████████████████░░░   ~90%  (API-Key, Injection-Defense, Encryption)
+Tests              ████████████████████░░░   ~90%  (39 Backend-Tests ✅; Frontend-Tests: Phase 2)
+Dokumentation      ████████████████████░░░   ~90%  (README, ROADMAP, Swagger)
+─────────────────────────────────────────────────────────────────
+Gesamt (v1.1)      ████████████████████░░░   ~90%  (v1.0 stabil erreicht; v1.1 gehärtet)
 ```
 
 ---
@@ -102,7 +110,7 @@ Gesamt (MVP)       █████████████░░░░░░░�
 ### 3.1 Behobene Bugs ✅
 
 #### BUG-01: Keine echte LLM-Anbindung – ✅ BEHOBEN
-- **Fix:** `google-generativeai>=0.8.0` in `requirements.txt`; echter `generate_content`-Call
+- **Fix:** `google-genai>=0.8.0` in `requirements.txt`; echter `generate_content`-Call
   in `sse_generator()` und non-Streaming-Pfad; Startup-Check für `GEMINI_API_KEY`.
 
 #### BUG-02: Keine Frontend-Seiten – ✅ BEHOBEN
@@ -113,12 +121,35 @@ Gesamt (MVP)       █████████████░░░░░░░�
 - **Fix:** `page_count = len(pdf.pages)` wird jetzt korrekt innerhalb des `with`-Blocks
   berechnet, danach erst im Return-Wert verwendet.
 
+#### BUG-04: `GET /v1/files` Response-Format inkompatibel mit Frontend – ✅ BEHOBEN (Audit April 2026)
+- **Problem:** `GET /v1/files` lieferte nur `{file_id, filename}`. Das Dokumente-Dashboard
+  erwartete zusätzlich `page_count`, `chunks_embedded`, `uploaded_at`, `preview` und `total`.
+  Alle erweiterten Felder wurden als undefined/null angezeigt.
+- **Fix:** `list_files()` gibt nun alle Felder inklusive Embedding-Count und Text-Vorschau zurück.
+
+#### BUG-05: Documents-Dashboard ohne Auth-Header – ✅ BEHOBEN (Audit April 2026)
+- **Problem:** `app/documents/page.tsx` sendete keine `Authorization`-Header bei `fetch()`-Calls.
+  Bei gesetztem `API_KEY` lieferten alle Requests 401. Download-Link via `<a href>` konnte
+  keinen Bearer-Token senden.
+- **Fix:** `apiHeaders()`-Hilfsfunktion liest `NEXT_PUBLIC_API_KEY` (aus `.env`); alle API-Calls
+  und Downloads verwenden den Header. `.env.example` dokumentiert die neue Variable.
+
+#### BUG-06: IVFFlat-Index nach Migration `c1c21ee5d1e1` nicht wiederhergestellt – ✅ BEHOBEN (Audit April 2026)
+- **Problem:** Die Migration `c1c21ee5d1e1` (add_user_configs_table) löschte den IVFFlat-Index auf
+  `file_embeddings.embedding`, ohne ihn neu zu erstellen. Alle RAG-Vektorsuchen degradierten
+  dadurch zu einem vollständigen Sequential-Scan (drastischer Performanceverlust ab ~1000 Chunks).
+- **Fix:** Neue Migration `d7f3a1b2c8e9_restore_ivfflat_index.py` recreiert den Index mit `IF NOT EXISTS`.
+
+#### BUG-07: `DEFAULT_MODELS` in `docker-compose.yml` existierte nicht in `/v1/models` – ✅ BEHOBEN (Audit April 2026)
+- **Problem:** `DEFAULT_MODELS: gemini-3.1-flash-lite` – dieses Modell war nie im `/v1/models`-Endpoint
+  vorhanden. Open WebUI nutzte standardmäßig ein nicht-existierendes Modell.
+- **Fix:** Geändert auf `gemini-3-flash-preview`, das im `/v1/models`-Endpoint korrekt definiert ist.
+
 ### 3.2 Behobene Architekturprobleme ✅
 
 #### ARCH-02: Keine Datenbankmodelle – ✅ BEHOBEN
-- `backend/models.py` enthält `UploadedFile` und `FileEmbedding` (SQLAlchemy ORM).
-- Alembic-Erstmigration `0001_initial_schema.py` legt pgvector-Extension, Tabellen
-  und IVFFlat-Index an.
+- `backend/models.py` enthält `UploadedFile`, `FileEmbedding` und `UserConfig` (SQLAlchemy ORM).
+- Alembic-Migrationen legen pgvector-Extension, Tabellen und IVFFlat-Index an.
 
 #### ARCH-03: pgvector nicht integriert – ✅ BEHOBEN
 - Vollständige RAG-Pipeline: PDF-Text in Chunks aufteilen → `text-embedding-004` Embedding
@@ -126,9 +157,10 @@ Gesamt (MVP)       █████████████░░░░░░░�
 
 #### ARCH-04: `approval_events`-Dict ohne TTL – ✅ BEHOBEN
 - HITL-Freigaben erhalten einen 60-Sekunden-Timeout; danach wird automatisch abgelehnt.
+- Persistenz via Redis: Freigaben überleben Server-Restarts.
 
-#### ARCH-06: `google-generativeai` fehlte – ✅ BEHOBEN
-- `google-generativeai>=0.8.0` ist in `backend/requirements.txt` enthalten.
+#### ARCH-06: `google-genai` fehlte – ✅ BEHOBEN
+- `google-genai>=0.8.0` ist in `backend/requirements.txt` enthalten (neues SDK, nicht `google-generativeai`).
 
 #### ARCH-07: Datenbank-Passwort hartkodiert – ✅ BEHOBEN
 - `docker-compose.yml` liest `POSTGRES_PASSWORD` aus `.env` mit Pflicht-Validierung.
@@ -143,27 +175,36 @@ Gesamt (MVP)       █████████████░░░░░░░�
 #### ARCH-11: Leere `metadata.json` – ✅ BEHOBEN
 - `name` und `description` korrekt befüllt.
 
-### 3.3 Offene Architekturprobleme 🔴🟠🟡
+#### ARCH-12: Keine Tests – ✅ BEHOBEN (M8)
+- 39 Backend-Tests in `backend/tests/`: health, security, chat-routing, models.
 
-#### ARCH-01: IP-basiertes Rate-Limiting statt JWT – ✅ BEHOBEN (M6)
-- **Fix:** `verify_api_key`-Dependency (Bearer Token); `_get_user_id()` nutzt Token-Hash;
-  `_get_client_ip()` wertet `X-Forwarded-For` korrekt aus (Caddy-Proxy-kompatibel).
+#### ARCH-13: Kein Health-Endpoint – ✅ BEHOBEN (M7)
+- `GET /health` prüft DB- und Redis-Verbindung; `GET /readyz` als öffentliche Liveness-Probe.
 
-#### ARCH-05: Schwache Prompt-Injection-Erkennung – ✅ BEHOBEN (M6)
-- **Fix:** `_INJECTION_PATTERNS`-Liste mit 20 Patterns (direkte Overrides, Jailbreaks,
-  Role-Injection, Template-Injection-Marker).
+### 3.3 Bekannte Limitierungen (nicht-kritisch) 🟡
 
-#### ARCH-09: ESLint im Build deaktiviert – ✅ BEHOBEN (M6)
-- **Fix:** `ignoreDuringBuilds: false` in `next.config.ts`; alle ESLint-Fehler bereinigt.
+#### LIMIT-01: DuckDuckGo-Fallback nicht implementiert
+- **Problem:** ROADMAP und frühere README-Version behaupteten "DuckDuckGo (Fallback) – echte Implementierung".
+  Tatsächlich gibt `tool_web_search()` bei Serper-Fehler nur einen Fehler-String zurück.
+- **Status:** Dokumentation korrigiert. Echte Implementierung für Phase 2 vorgesehen.
 
-#### ARCH-12: Keine Tests
-- **Problem:** Weder für Backend (pytest) noch für Frontend (vitest) existieren Test-Dateien.
-- **Fix:** Testsuite aufbauen (siehe Meilenstein 8).
+#### LIMIT-02: HITL-Trigger-Heuristik zu breit
+- **Problem:** `"search" in message.lower()` löst HITL für jede Nachricht mit dem Wort "search" aus
+  (False Positives: "I'm searching for...", "What's the binary search algorithm?").
+- **Status:** Bekannte Einschränkung. Für Phase 2: Echter Tool-Call-Mechanismus via Function Calling API.
 
-#### ARCH-13: Kein Health-Endpoint
-- **Problem:** `GET /health` existiert nicht – Infrastruktur-Monitoring und Container-Orchestrierung
-  (z.B. Kubernetes) haben keine Möglichkeit den Applikationszustand zu prüfen.
-- **Fix:** Endpoint implementieren, der DB- und Redis-Verbindung prüft.
+#### LIMIT-03: SSE-Streaming blockiert Event Loop
+- **Problem:** `_convert_and_stream()` ist ein synchroner Generator, der direkt in `sse_gen()` iteriert.
+  Langsamere Gemini-Antworten blockieren den asyncio Event Loop für andere Requests.
+- **Status:** Bekannte Einschränkung für Single-User/Low-Traffic. Fix: `asyncio.to_thread()` für Phase 2.
+
+#### LIMIT-04: Redis-Verbindung nicht im `lifespan`-Shutdown geschlossen
+- **Problem:** `redis_client` (Modul-Level) wird bei graceful Shutdown nicht explizit geschlossen.
+- **Status:** Betrieblich unproblematisch (Redis schließt idle Connections automatisch).
+
+#### LIMIT-05: Fernet ≠ AES-256
+- **Problem:** README beschreibt Verschlüsselung als "AES-256". Fernet nutzt intern AES-128-CBC.
+- **Status:** Dokumentation in README korrigiert ("AES/Fernet-verschlüsselt"). Sicherheitsniveau bleibt hoch.
 
 ---
 
@@ -181,7 +222,7 @@ Die folgende Roadmap ist in Meilensteine (M) gegliedert, die aufeinander aufbaue
 - [x] **ARCH-07 fixen:** Datenbank-Passwort aus hartkodiertem Wert in `.env`-Variable auslagern
 - [x] **ARCH-08 bereinigen:** Nicht verwendete Env-Variablen implementiert
 - [x] **ARCH-11 fixen:** `metadata.json` Description ausgefüllt
-- [ ] **ARCH-09:** ESLint im Build aktivieren (`ignoreDuringBuilds: false`)
+- [x] **ARCH-09:** ESLint im Build aktivieren (`ignoreDuringBuilds: false`)
 
 ---
 
@@ -189,7 +230,7 @@ Die folgende Roadmap ist in Meilensteine (M) gegliedert, die aufeinander aufbaue
 > **Ergebnis:** `docker compose up` startet alle Services fehlerfrei.
 
 - [x] `docker-compose.yml`: Datenbankpasswort aus `.env` einlesen
-- [x] `backend/requirements.txt`: `google-generativeai>=0.8.0` hinzugefügt
+- [x] `backend/requirements.txt`: `google-genai>=0.8.0` hinzugefügt (neues SDK, nicht `google-generativeai`)
 - [x] `backend/requirements.txt`: `sqlalchemy>=2.0`, `asyncpg`, `pgvector` hinzugefügt
 - [x] Open WebUI als 4. Service integriert (Port 3002, OpenAI-kompatibel)
 - [x] Caddy als optionaler 5. Service für HTTPS-Produktion (`--profile prod`)
@@ -206,11 +247,12 @@ Die folgende Roadmap ist in Meilensteine (M) gegliedert, die aufeinander aufbaue
 - [x] SQLAlchemy-ORM-Modelle angelegt (`backend/models.py`):
   - `UploadedFile` (id, filename, path, extracted_text, page_count, uploaded_at)
   - `FileEmbedding` (id, file_id, chunk_text, chunk_index, embedding VECTOR(768))
-- [x] Alembic-Erstmigration (`0001_initial_schema.py`)
+  - `UserConfig` (id, user_id, provider, encrypted_key, updated_at)
+- [x] Alembic-Migrationen: `0001_initial_schema.py`, `c1c21ee5d1e1_add_user_configs_table.py`, `d7f3a1b2c8e9_restore_ivfflat_index.py`
 - [x] pgvector-Extension in Migration aktiviert
-- [x] IVFFlat-Cosine-Index auf `file_embeddings.embedding`
+- [x] IVFFlat-Cosine-Index auf `file_embeddings.embedding` (via Migration `d7f3a1b2c8e9` nach Fix von BUG-06)
 - [x] Async-SQLAlchemy-Session via `lifespan` in FastAPI integriert
-- [ ] Alembic-Migrationen beim Start automatisch ausführen (`alembic upgrade head` im `lifespan`-Hook)
+- [x] Alembic-Migrationen beim Start automatisch ausführen (`alembic upgrade head` im `lifespan`-Hook)
 
 **Abnahmekriterium:** ✅ Tabellen werden beim ersten Start automatisch erstellt.
 
@@ -221,10 +263,11 @@ Die folgende Roadmap ist in Meilensteine (M) gegliedert, die aufeinander aufbaue
 
 - [x] `GEMINI_API_KEY` aus Umgebungsvariable einlesen
 - [x] Startup-Warning: App loggt Warnung wenn `GEMINI_API_KEY` fehlt
-- [x] `google-generativeai`-Client initialisieren (Singleton via `lifespan`)
-- [x] Non-Streaming-Pfad: Echter `generate_content`-Call an `gemini-2.0-flash-exp`
+- [x] `google-genai`-Client initialisieren (Singleton via `lifespan`)
+- [x] Non-Streaming-Pfad: Echter `generate_content`-Call an `gemini-3-flash-preview`
 - [x] Streaming-Pfad: `generate_content_stream` via Thread-Pool in `sse_generator()` integriert
 - [x] OpenAI-Format → Gemini-Format Konvertierung (`_convert_messages_for_gemini`)
+- [x] Multi-Model Routing: Gemini / Mistral / DeepSeek per Modell-Prefix
 - [x] `REACTIVE_MAX_ITERATIONS` aus `.env` lesen und in Chat-Loop eingebaut
 - [x] Error-Handling: Gemini-API-Fehler abgefangen, benutzerfreundliche Fehlermeldung
 - [x] Kein Cache bei API-Fehlern
@@ -329,17 +372,15 @@ Die folgende Roadmap ist in Meilensteine (M) gegliedert, die aufeinander aufbaue
 
 ---
 
-### Meilenstein 9: Dokumentation & Finale Qualitätssicherung (Dauer: ~1 Tag)
-> **Ziel:** Ein Entwickler kann das Projekt ohne Vorkenntnisse lokal aufsetzen.
-
 ### Meilenstein 9: Dokumentation & Finale Qualitätssicherung ✅ ABGESCHLOSSEN
 > **Ergebnis:** Onboarding-ready. Ein neuer Entwickler kann das Projekt in < 30 Minuten lokal starten.
 
-- [x] `.env.example` auf Vollständigkeit geprüft: alle Variablen dokumentiert (MISTRAL_API_KEY, WEBUI_API_KEY, WEBUI_INTERNAL_URL, POSTGRES_*, REACTIVE_MAX_ITERATIONS, etc.)
+- [x] `.env.example` auf Vollständigkeit geprüft: alle Variablen dokumentiert (MISTRAL_API_KEY, WEBUI_API_KEY, WEBUI_INTERNAL_URL, POSTGRES_*, REACTIVE_MAX_ITERATIONS, NEXT_PUBLIC_API_KEY, etc.)
 - [x] Inline-Code-Kommentare überprüft und ergänzt (Rate-Limiter, RAG-Pipeline, Injection-Defense, Proxy-Routing)
 - [x] ESLint-Konfiguration: `ignoreDuringBuilds: false` bestätigt aktiv in `next.config.ts`
 - [x] Dead-Code aus `main.py` entfernt (M7-Vorbereitung)
 - [x] End-to-End-Verifikation: Alle 39 Backend-Tests grün, API-Endpunkte live und erreichbar
+- [x] **Architektur-Audit (April 2026):** BUG-04–07 behoben (API-Response-Format, Auth-Header, IVFFlat-Index, DEFAULT_MODELS)
 
 **Abnahmekriterium:** ✅ Alle Tests grün. `.env.example` dokumentiert vollständig den Onboarding-Pfad.
 
@@ -349,40 +390,44 @@ Die folgende Roadmap ist in Meilensteine (M) gegliedert, die aufeinander aufbaue
 
 ```
 M0: Hotfixes & Cleanup                  [✅ Fertig]  → Saubere Codebasis
-M1: Lokale Infrastruktur                [✅ Fertig]  → Docker läuft komplett (5 Services)
-M2: Datenbank & Migrationen             [✅ Fertig]  → Persistenz vorhanden
-M3: Gemini-API-Integration              [✅ Fertig]  → Echte KI-Antworten ✓
+M1: Lokale Infrastruktur                [✅ Fertig]  → Docker läuft komplett (6 Services inkl. Worker)
+M2: Datenbank & Migrationen             [✅ Fertig]  → Persistenz + 3 Migrationen
+M3: Gemini-API-Integration              [✅ Fertig]  → Echte KI-Antworten (google-genai SDK) ✓
 M4: Chat-Frontend                       [✅ Fertig]  → Open WebUI + Dashboard ✓
 M5: RAG-Pipeline                        [✅ Fertig]  → PDF-Kontext in Antworten ✓
 M5.5: HTTPS für Hetzner VPS             [✅ Fertig]  → Caddy + Let's Encrypt ✓
 M6: Authentifizierung & Sicherheit      [✅ Fertig]  → API-Key-Auth, erweiterter Schutz ✓
-M7: Fehlerbehandlung & Logging          [✅ Fertig]  → /health, /readyz, Stdout-Logging ✓
+M7: Fehlerbehandlung & Logging          [✅ Fertig]  → /health, /readyz, Log-Rotation ✓
 M8: Tests                               [✅ Fertig]  → 39 Backend-Tests, alle grün ✓
-M9: Dokumentation & QA                  [✅ Fertig]  → Onboarding-Ready, .env.example ✓
+M9: Dokumentation & QA                  [✅ Fertig]  → Onboarding-Ready, Audit-Fixes ✓
 ─────────────────────────────────────────────────────────────────────────────
 🎉  v1.0 STABIL – Bereit für Produktion!
+v1.1 HARDENED – arq Worker, User-Keys, Multi-Provider, IVFFlat-Fix ✅
 ```
 
 > [!IMPORTANT]
 > Mit Abschluss von **Meilenstein 9** ist die **stabile v1.0** erreicht.
-> Das System ist produktionsreif mit: RAG, Multi-Provider-LLMs (Gemini/Mistral/DeepSeek),
-> HTTPS, Auth, Rate Limiting, 39 Tests und vollständiger Dokumentation.
+> Das **v1.1 Hardened**-Release bringt zusätzlich: arq Worker, nutzerspezifische
+> API-Keys (Fernet-verschlüsselt), Multi-Model Routing (Gemini/Mistral/DeepSeek),
+> persistentes HITL via Redis und mehrere kritische Bug-Fixes aus dem April-2026-Audit.
 
 ---
 
-## 6. Was für Phase 2 geplant ist (nach v1.0)
+## 6. Was für Phase 2 geplant ist (nach v1.1)
 
 Die folgenden Features sind bereits in der Architektur angedeutet (Alembic `checkpoints`-Tabellen, `GOAL_MAX_ITERATIONS`), aber explizit für nach der ersten stabilen Version vorgesehen:
 
 - **LangGraph-Agenten:** Autonome, mehrstufige Goal-Engine (`GOAL_MAX_ITERATIONS=10`)
+- **DuckDuckGo-Fallback:** Echter Web-Search-Fallback wenn Serper-Key fehlt (aktuell: Fehler-String).
 - **Redis-Caching für RAG:** Dokumenten-basiertes Caching (z.B. arXiv-Paper) zur Beschleunigung identischer Anfragen und Kostensenkung.
+- **SSE-Streaming Fix:** `_convert_and_stream()` in `asyncio.to_thread()` auslagern, um Event-Loop-Blocking zu vermeiden.
 - **Nginx & Skalierung:** Reverse Proxy mit Lastverteilung (Load Balancing) bei steigender Nutzerzahl (>50).
 - **Security-Härtung (Enterprise-Ready):**
   - **JWT/OAuth2:** Übergang von statischem API-Key zu dynamischen, ablaufenden Token.
   - **DB-Verschlüsselung:** TDE (Disk-at-rest) und optional `pgcrypto` für sensible PDF-Inhalte.
   - **PDF-Sandboxing:** Metadaten-Stripping (`exiftool`) und isoliertes Parsing (z. B. gVisor).
+  - **Echter Tool-Call-Mechanismus:** Ersetzen der `"search"`-Heuristik durch Function-Calling API.
 - **UX & Stabilität (Hoher Mehrwert):**
-  - **Asynchrone Uploads:** Hintergrund-Verarbeitung (Redis + `arq`) zur Entlastung der UI.
   - **Idempotenz & Safety:** Idempotenz-Tokens für API-Calls und dediziertes Rate Limiting für Daemons.
   - **Sentry-Integration:** Fehler-Monitoring und Alerts in Echtzeit.
 - **CI/CD-Pipeline:** GitHub Actions für automatische Tests und Cloud-Run/Hetzner-Deployment

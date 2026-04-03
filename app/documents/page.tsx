@@ -5,6 +5,13 @@ import Link from 'next/link';
 import { ArrowLeft, FileText, Trash2, RefreshCw, Calendar, Layers, Eye, EyeOff, Download } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+// NEXT_PUBLIC_API_KEY is optional: when set, it is sent as Bearer token.
+// Leave empty for local dev (when the backend has API_KEY unset = auth disabled).
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? '';
+
+function apiHeaders(): HeadersInit {
+  return API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {};
+}
 
 interface DocumentFile {
   file_id: string;
@@ -43,7 +50,7 @@ export default function DocumentsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/v1/files`);
+      const res = await fetch(`${API_URL}/v1/files`, { headers: apiHeaders() });
       if (!res.ok) throw new Error(`API Fehler: ${res.status} ${res.statusText}`);
       const data: FilesResponse = await res.json();
       setFiles(data.files);
@@ -59,11 +66,27 @@ export default function DocumentsPage() {
     fetchFiles();
   }, [fetchFiles]);
 
+  const handleDownload = async (fileId: string, filename: string) => {
+    try {
+      const res = await fetch(`${API_URL}/v1/files/${fileId}/download`, { headers: apiHeaders() });
+      if (!res.ok) throw new Error(`Download fehlgeschlagen: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Download fehlgeschlagen');
+    }
+  };
+
   const handleDelete = async (fileId: string, filename: string) => {
     if (!confirm(`Datei „${filename}" aus der Datenbank löschen? Alle Embeddings werden entfernt. Die originale PDF-Datei bleibt auf dem Server erhalten.`)) return;
     setDeleting(fileId);
     try {
-      const res = await fetch(`${API_URL}/v1/files/${fileId}`, { method: 'DELETE' });
+      const res = await fetch(`${API_URL}/v1/files/${fileId}`, { method: 'DELETE', headers: apiHeaders() });
       if (!res.ok) throw new Error(`Löschen fehlgeschlagen: ${res.status} ${res.statusText}`);
       setFiles((prev) => prev.filter((f) => f.file_id !== fileId));
       setTotal((prev) => prev - 1);
@@ -191,15 +214,14 @@ export default function DocumentsPage() {
                         <><Eye className="h-3.5 w-3.5" /> Vorschau</>
                       )}
                     </button>
-                    <a
-                      href={`${API_URL}/v1/files/${file.file_id}/download`}
-                      download={file.filename}
+                    <button
+                      onClick={() => handleDownload(file.file_id, file.filename)}
                       className="flex items-center gap-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-green-400 transition-colors hover:border-green-600 hover:bg-green-900/20"
                       title="Original-PDF herunterladen"
                     >
                       <Download className="h-3.5 w-3.5" />
                       Download
-                    </a>
+                    </button>
                     <button
                       onClick={() => handleDelete(file.file_id, file.filename)}
                       disabled={deleting === file.file_id}

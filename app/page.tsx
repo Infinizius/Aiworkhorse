@@ -116,8 +116,9 @@ export default function HomePage() {
             KI-Assistent mit DSGVO-Compliance
           </h2>
           <p className="text-gray-400 max-w-2xl mx-auto text-lg">
-            AI-Workhorse kombiniert Gemini Flash, RAG-Pipeline (PDF + pgvector) und ein
-            Human-in-the-Loop-Freigabesystem in einem sicheren, EU-gehosteten Backend.
+            AI-Workhorse kombiniert Gemini 3 Flash/Pro, Mistral und DeepSeek mit einer RAG-Pipeline
+            (PDF + pgvector), persistentem Human-in-the-Loop und nutzerspezifischen API-Keys in
+            einem sicheren, EU-gehosteten Backend.
           </p>
           <a
             href={OPEN_WEBUI_URL}
@@ -171,29 +172,32 @@ export default function HomePage() {
           <div className="rounded-2xl border border-gray-700 bg-gray-800/40 p-6">
             <h3 className="mb-4 font-semibold text-gray-200">Backend-Features</h3>
             <ul className="space-y-2">
-              <FeatureItem label="Gemini 2.0 Flash – Streaming & Non-Streaming" status="done" />
+              <FeatureItem label="Gemini 3 Flash / Pro – Streaming & Non-Streaming" status="done" />
+              <FeatureItem label="Multi-Model Routing (Gemini / Mistral / DeepSeek)" status="done" />
               <FeatureItem label="Dreistufige Prompt-Injection-Defense" status="done" />
               <FeatureItem label="Token-Bucket Rate Limiter (Redis)" status="done" />
-              <FeatureItem label="HITL Tool-Freigabe (60s Timeout)" status="done" />
+              <FeatureItem label="HITL Tool-Freigabe (60s Timeout, Redis-persistent)" status="done" />
               <FeatureItem label="SHA256-Prompt-Caching (24h TTL)" status="done" />
+              <FeatureItem label="Nutzerspezifische API-Keys (AES-verschlüsselt)" status="done" />
               <FeatureItem label="PDF-Upload + pdfplumber-Parsing" status="done" />
               <FeatureItem label="pgvector Embedding (text-embedding-004)" status="done" />
               <FeatureItem label="RAG – Ähnlichkeitssuche mit file_ids" status="done" />
-              <FeatureItem label="Web-Search (Serper / DuckDuckGo)" status="done" />
+              <FeatureItem label="Asynchrone Embedding-Verarbeitung (arq Worker)" status="done" />
+              <FeatureItem label="Web-Search (Serper API)" status="done" />
               <FeatureItem label="JWT-Authentifizierung" status="planned" />
             </ul>
           </div>
           <div className="rounded-2xl border border-gray-700 bg-gray-800/40 p-6">
             <h3 className="mb-4 font-semibold text-gray-200">Infrastruktur</h3>
             <ul className="space-y-2">
-              <FeatureItem label="Docker Compose (API, DB, Redis, Open WebUI)" status="done" />
+              <FeatureItem label="Docker Compose (API, Worker, DB, Redis, Open WebUI)" status="done" />
               <FeatureItem label="PostgreSQL 16 mit pgvector-Extension" status="done" />
-              <FeatureItem label="Redis 7 (Caching & Rate Limiting)" status="done" />
-              <FeatureItem label="Strukturiertes JSON-Logging (JSONL)" status="done" />
+              <FeatureItem label="Redis 7 (Caching, Rate Limiting & HITL)" status="done" />
+              <FeatureItem label="Strukturiertes JSON-Logging (JSONL + Log-Rotation)" status="done" />
               <FeatureItem label="ARM64-kompatibel (Hetzner CAX21)" status="done" />
-              <FeatureItem label="Alembic-Migrationen" status="partial" />
+              <FeatureItem label="Alembic-Migrationen (Auto-Run beim Start)" status="done" />
+              <FeatureItem label="Backend-Tests (pytest, 39 Tests ✅)" status="done" />
               <FeatureItem label="CI/CD Pipeline" status="planned" />
-              <FeatureItem label="Tests (pytest / vitest)" status="planned" />
             </ul>
           </div>
         </section>
