@@ -641,7 +641,30 @@ async def list_files(req: Request):
     async with req.app.state.db_session_factory() as session:
         res = await session.execute(select(UploadedFileModel))
         files = res.scalars().all()
-        return {"files": [{"file_id": f.id, "filename": f.filename} for f in files]}
+        # Count embeddings per file
+        file_ids = [f.id for f in files]
+        chunks_by_file: dict = {}
+        if file_ids:
+            count_res = await session.execute(
+                select(FileEmbedding.file_id, func.count(FileEmbedding.id).label("cnt"))
+                .where(FileEmbedding.file_id.in_(file_ids))
+                .group_by(FileEmbedding.file_id)
+            )
+            chunks_by_file = {row.file_id: row.cnt for row in count_res}
+        result = []
+        for f in files:
+            preview = ""
+            if f.extracted_text:
+                preview = f.extracted_text[:500].strip()
+            result.append({
+                "file_id": f.id,
+                "filename": f.filename,
+                "page_count": f.page_count,
+                "chunks_embedded": chunks_by_file.get(f.id, 0),
+                "uploaded_at": f.uploaded_at.isoformat() if f.uploaded_at else None,
+                "preview": preview,
+            })
+        return {"files": result, "total": len(result)}
 
 @app.get("/v1/files/{file_id}", dependencies=[Depends(verify_api_key)])
 async def get_file(file_id: str, req: Request):
