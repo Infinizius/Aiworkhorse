@@ -42,8 +42,14 @@ def validate_config():
     # Fail-Fast on missing Encryption Key for Phase 2
     if not ENCRYPTION_KEY:
         critical_missing.append("ENCRYPTION_KEY")
-    elif ENCRYPTION_KEY == "CHANGE_ME_STRONG_ENCRYPTION_KEY":
-        logger.error("ENCRYPTION_KEY is the insecure default 'CHANGE_ME'. Please change it.")
+    elif ENCRYPTION_KEY in (
+        "CHANGE_ME_STRONG_ENCRYPTION_KEY",
+        # BUG-11 fix: also block the example value shipped in .env.example
+        # to prevent users who copy the file verbatim from running with a
+        # publicly known encryption key.
+        "f6-9E_zX_K-mX-Z-H-W-Y-G-m-X-Z-H-W-Y-G-m-X-Z-H-W-Y-G",
+    ):
+        logger.error("ENCRYPTION_KEY is the insecure default. Please change it.")
         critical_missing.append("ENCRYPTION_KEY (insecure default)")
 
     if critical_missing:

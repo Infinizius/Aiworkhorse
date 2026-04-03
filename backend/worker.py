@@ -18,8 +18,10 @@ from config import DATABASE_URL, GEMINI_API_KEY, validate_config
 try:
     validate_config()
 except Exception as e:
-    # Arq logs this if we're running under arq
+    # BUG-09 fix: re-raise so arq refuses to start with an invalid configuration
+    # rather than silently running in a broken state.
     print(f"Worker config validation failed: {e}")
+    raise
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

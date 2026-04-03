@@ -6,7 +6,7 @@ Dieses Dokument fasst den aktuellen Sicherheitsstatus der AI-Workhorse Plattform
 
 Durch die Implementierung von Phase 2 wurden folgende Schutzmechanismen etabliert:
 
-- **Provider-Key Verschlüsselung**: Alle API-Keys (Gemini, Mistral, DeepSeek) werden mit **AES-256 (Fernet)** verschlüsselt gespeichert.
+- **Provider-Key Verschlüsselung**: Alle API-Keys (Gemini, Mistral, DeepSeek) werden mit **Fernet (AES-128-CBC + HMAC-SHA256)** verschlüsselt gespeichert.
 - **Fail-Fast Startup**: Das System verweigert den Start bei fehlendem oder unsicherem `ENCRYPTION_KEY`.
 - **Identitätsschutz**: Das System nutzt Trusted Header Authentication (`X-User-Email`), um Nutzer voneinander zu isolieren.
 - **Injection Defense**: Regex-basierte Filterung von User-Prompts zur Abwehr von Prompt-Injection.
@@ -17,10 +17,9 @@ Durch die Implementierung von Phase 2 wurden folgende Schutzmechanismen etablier
 
 Im Rahmen des internen v1.1.1 Audits wurden folgende potenzielle Schwachstellen identifiziert:
 
-### A. HITL Endpunkt-Validierung (Hohe Priorität)
-- **Status**: Der Endpunkt `/v1/tools/approve/{execution_id}` ist durch den globalen `API_KEY` geschützt, prüft aber aktuell nicht, ob der freigebende Nutzer auch der Initiator der Anfrage ist.
-- **Risiko**: Ein Angreifer mit Zugriff auf eine gültige `execution_id` könnte Tool-Aufrufe anderer Nutzer manipulieren.
-- **Maßnahme**: Bindung der `execution_id` an die `user_id` in Redis.
+### A. HITL Endpunkt-Validierung (Hohe Priorität → ✅ BEHOBEN BUG-14)
+- **Status**: ✅ BEHOBEN. Der Endpunkt `/v1/tools/approve/{execution_id}` prüft jetzt, ob der freigebende Nutzer der Initiator der Anfrage ist. Bei jedem HITL-Request wird die `user_id` des Initiators unter `hitl_owner:{execution_id}` in Redis gespeichert (65s TTL). Der Approve-Endpunkt verweigert die Freigabe mit HTTP 403, falls die User-IDs nicht übereinstimmen.
+- **Ursprüngliches Risiko**: Ein Angreifer mit Zugriff auf eine gültige `execution_id` konnte Tool-Aufrufe anderer Nutzer manipulieren.
 
 ### B. Prompt Injection (Mittlere Priorität)
 - **Status**: Grundlegende Filter vorhanden.
@@ -54,7 +53,7 @@ Für einen professionellen Pen-test sollten folgende Szenarien priorisiert werde
 
 ## 4. Nächste Schritte (Self-Audit Fixes)
 
-1. [ ] **HITL-Hardening**: Verknüpfung von `execution_id` mit der `user_email` in Redis.
+1. [x] **HITL-Hardening**: Verknüpfung von `execution_id` mit der `user_email` in Redis. ✅ BEHOBEN (BUG-14, April 2026)
 2. [ ] **Audit-Logging**: Erweiterung der Logs um fehlgeschlagene Security-Filter-Vorgänge (Alerting).
 3. [ ] **CORS Tightening**: Prüfung der erlaubten Origins (aktuell in `config.py` definiert).
 

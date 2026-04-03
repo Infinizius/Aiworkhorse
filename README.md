@@ -125,14 +125,15 @@ Wenn `API_KEY` gesetzt ist, muss `NEXT_PUBLIC_API_KEY` in der `.env` auf denselb
 Infrastruktur (Docker/Worker)  ███████████████████████  100% ✅
 Backend SDK (google-genai)     ███████████████████████  100% ✅
 Encrypted Key Management       ███████████████████████  100% ✅
-Persistent HITL (Redis)        ███████████████████████  100% ✅
+Persistent HITL (Redis)        ███████████████████████  100% ✅  (BUG-14 behoben: User-Binding)
 Async PDF Pipeline (arq)       ███████████████████████  100% ✅
 API/Frontend Kompatibilität    ███████████████████████  100% ✅  (BUG-04–07 behoben, Audit Apr 2026)
+Sicherheit & Robustheit        ███████████████████████  100% ✅  (BUG-08–14 behoben, Audit Apr 2026)
 ─────────────────────────────────────────────────────────────────
 GESAMTSTATUS v1.1              ███████████████████████  100% GEHÄRTET
 ```
 
-> **Bekannte Limitierungen (non-blocking):** DuckDuckGo-Fallback nicht implementiert (nur Serper), HITL-Trigger-Heuristik (`"search"`-Keyword) zu breit, SSE blockiert Event-Loop bei Streaming. Alle für Phase 2 vorgesehen.
+> **Bekannte Limitierungen (non-blocking):** DuckDuckGo-Fallback nicht implementiert (nur Serper), HITL-Trigger-Heuristik (`"search"`-Keyword) zu breit (False Positives; Re-Trigger nach Tool-Call mit BUG-08 behoben), SSE blockiert Event-Loop bei Streaming. Alle für Phase 2 vorgesehen.
 
 ---
 

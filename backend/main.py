@@ -455,13 +455,20 @@ async def list_models():
     }
 
 @app.post("/v1/tools/approve/{execution_id}", dependencies=[Depends(verify_api_key)])
-async def approve_tool(execution_id: str, req: ToolApprovalRequest):
+async def approve_tool(execution_id: str, req: ToolApprovalRequest, approver_id: str = Depends(get_current_user)):
     """
     HITL Endpoint: Frontend bestätigt oder lehnt eine Tool-Ausfuhrung ab.
     Speichert das Resultat in Redis mit 5 Minuten TTL.
+    Prüft, ob der freigebende Nutzer der Initiator der Anfrage ist (BUG-14 fix).
     """
+    owner_id = await redis_client.get(f"hitl_owner:{execution_id}")
+    if owner_id is None:
+        raise HTTPException(status_code=404, detail="Execution not found or expired")
+    if owner_id != approver_id:
+        raise HTTPException(status_code=403, detail="Forbidden: only the request initiator may approve this tool execution")
     redis_key = f"approval:{execution_id}"
     await redis_client.set(redis_key, "approved" if req.approved else "denied", ex=300)
+    await redis_client.delete(f"hitl_owner:{execution_id}")
     return {"status": "success", "execution_id": execution_id, "approved": req.approved}
 
 @app.post("/v1/chat/completions", dependencies=[Depends(verify_api_key), Depends(check_rate_limit)])
@@ -524,6 +531,9 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
 
             execution_id = str(uuid.uuid4())
             redis_key = f"approval:{execution_id}"
+            # BUG-14 fix: bind this execution_id to the requesting user so only
+            # the initiator can approve/deny it (prevents cross-user HITL manipulation).
+            await redis_client.set(f"hitl_owner:{execution_id}", user_id, ex=65)
             yield _chunk(f"\n[SYSTEM] Tool-Freigabe erforderlich (Web-Search). execution_id: {execution_id}\n")
             try:
                 deadline = time.time() + 60
@@ -543,11 +553,16 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
                     tool_result = await tool_web_search(search_query)
                     yield _chunk(f"\n[TOOL] {tool_result}\n")
                     msgs.append({"role": "user", "content": f"[Web-Search Ergebnis]\n{tool_result}\n\nBitte fortfahren."})
+                    # BUG-08 fix: exit HITL loop after successful tool call to prevent
+                    # re-triggering on the original user message in subsequent iterations.
+                    await redis_client.delete(f"hitl_owner:{execution_id}")
+                    break
                 else:
                     yield _chunk("\n[SYSTEM] Tool-Ausfuhrung abgelehnt oder Timeout.\n")
                     break
             finally:
                 await redis_client.delete(redis_key)
+                await redis_client.delete(f"hitl_owner:{execution_id}")
 
         def _convert_and_stream():
             try:
@@ -683,6 +698,10 @@ async def get_file(file_id: str, req: Request):
 @app.delete("/v1/files/{file_id}", dependencies=[Depends(verify_api_key)])
 async def delete_file(file_id: str, req: Request):
     async with req.app.state.db_session_factory() as session:
+        # BUG-10 fix: verify file exists before attempting delete
+        res = await session.execute(select(UploadedFileModel).where(UploadedFileModel.id == file_id))
+        if res.scalar_one_or_none() is None:
+            raise HTTPException(status_code=404, detail="File not found")
         await session.execute(delete(FileEmbedding).where(FileEmbedding.file_id == file_id))
         await session.execute(delete(UploadedFileModel).where(UploadedFileModel.id == file_id))
         await session.commit()

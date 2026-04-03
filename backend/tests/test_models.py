@@ -8,6 +8,9 @@ pytestmark = pytest.mark.anyio
 
 REQUIRED_MODELS = [
     "gemini-3-flash-preview",
+    "gemini-3-pro-preview",
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
     "gemma-3-27b-it",
     "deepseek-v3.2-non-reasoning",
     "deepseek-v3.2-reasoning",
