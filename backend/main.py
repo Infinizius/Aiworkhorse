@@ -296,6 +296,10 @@ def _split_into_chunks(text_content: str, chunk_size: int = 500, overlap: int = 
 async def _get_rag_context(
     file_ids: List[str], query: str, app_instance: FastAPI, user_id: str, top_k: int = 5
 ):
+    """
+    Builds RAG context from the subset of file_ids owned by the requesting user.
+    Any file IDs outside the caller's ownership are ignored before similarity search.
+    """
     if not getattr(app_instance.state, "db_session_factory", None):
         return ""
     try:

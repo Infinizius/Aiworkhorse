@@ -1,5 +1,8 @@
 const INTERNAL_API_URL = process.env.INTERNAL_API_URL ?? 'http://ai-workhorse-api:8000';
 const SERVER_API_KEY = process.env.API_KEY ?? '';
+const NORMALIZED_INTERNAL_API_URL = INTERNAL_API_URL.endsWith('/')
+  ? INTERNAL_API_URL
+  : `${INTERNAL_API_URL}/`;
 
 const FORWARDED_REQUEST_HEADERS = [
   'accept',
@@ -10,7 +13,7 @@ const FORWARDED_REQUEST_HEADERS = [
 ] as const;
 
 function buildTargetUrl(pathname: string, requestUrl: string): URL {
-  const targetUrl = new URL(pathname, INTERNAL_API_URL.endsWith('/') ? INTERNAL_API_URL : `${INTERNAL_API_URL}/`);
+  const targetUrl = new URL(pathname, NORMALIZED_INTERNAL_API_URL);
   targetUrl.search = new URL(requestUrl).search;
   return targetUrl;
 }
