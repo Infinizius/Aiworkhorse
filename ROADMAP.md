@@ -83,7 +83,6 @@
 | DuckDuckGo-Fallback | `tool_web_search()` hat keinen echten Fallback – bei Serper-Fehler wird nur ein Fehlerstring zurückgegeben (ROADMAP-Claim war falsch) | 🟡 Mittel |
 | HITL-Trigger | `"search" in message.lower()` ist ein zu breites Heuristikum (False Positives bei Wörtern wie "searching"); Re-Trigger-Bug nach Tool-Call behoben (BUG-08) | 🟡 Mittel |
 | SSE-Streaming Event Loop | `_convert_and_stream()` (sync Generator) wird direkt in async `sse_gen()` iteriert → blockiert Event Loop | 🟡 Mittel |
-| Redis-Verbindung nicht geschlossen | `redis_client` (Modul-Level) wird im `lifespan`-Shutdown nicht explizit geschlossen | 🟡 Niedrig |
 | NEXT_PUBLIC_API_KEY im Browser | Dashboard-Frontend nutzt `NEXT_PUBLIC_API_KEY` – Key im Browser-Bundle sichtbar; nur für private Netzwerke akzeptabel | 🟡 Niedrig |
 | CI/CD-Pipeline | Keine GitHub Actions, kein automatisches Deployment | 🔵 Phase 2 |
 | JWT-Authentifizierung | Übergang von statischem API-Key zu dynamischen Token für Phase 2 geplant | 🔵 Phase 2 |
@@ -100,7 +99,7 @@ Sicherheit         ████████████████████�
 Tests              █████████████████████░░   ~93%  (39 Backend-Tests ✅; alle 10 Modelle geprüft; Frontend-Tests: Phase 2)
 Dokumentation      █████████████████████░░   ~93%  (README, ROADMAP, SECURITY_AUDIT, Swagger aktualisiert)
 ─────────────────────────────────────────────────────────────────
-Gesamt (v1.1)      █████████████████████░░   ~93%  (v1.0 stabil; v1.1 gehärtet; April-2026-Audit BUG-08–14 behoben)
+Gesamt (v1.1)      █████████████████████░░   ~93%  (v1.0 stabil; v1.1 gehärtet; April-2026-Audit BUG-08–15 behoben)
 ```
 
 ---
@@ -173,6 +172,10 @@ Gesamt (v1.1)      ████████████████████�
 - **Problem:** `POST /v1/tools/approve/{execution_id}` prüfte nur den globalen `API_KEY`, aber nicht ob der freigebende Nutzer auch der Initiator der Anfrage war. Jeder authentifizierte Nutzer konnte beliebige `execution_id`s approven (Insecure Direct Object Reference).
 - **Fix:** Beim Erstellen jedes HITL-Requests wird `user_id` des Initiators unter `hitl_owner:{execution_id}` mit 65s TTL in Redis gespeichert. Der Approve-Endpoint prüft Übereinstimmung; bei Mismatch: HTTP 403.
 
+#### BUG-15: Graceful Shutdown schloss Redis/arq-Verbindungen nicht explizit – ✅ BEHOBEN (Audit April 2026)
+- **Problem:** `redis_client` und `arq_pool` blieben beim `lifespan`-Shutdown offen.
+- **Fix:** Shutdown-Pfad schließt nun beide Verbindungen explizit, bevor die DB-Engine disposed wird; ein Regressionstest deckt den Ablauf ab.
+
 ### 3.2 Behobene Architekturprobleme ✅
 
 #### ARCH-02: Keine Datenbankmodelle – ✅ BEHOBEN
@@ -226,11 +229,7 @@ Gesamt (v1.1)      ████████████████████�
   Langsamere Gemini-Antworten blockieren den asyncio Event Loop für andere Requests.
 - **Status:** Bekannte Einschränkung für Single-User/Low-Traffic. Fix: `asyncio.to_thread()` für Phase 2.
 
-#### LIMIT-04: Redis-Verbindung nicht im `lifespan`-Shutdown geschlossen
-- **Problem:** `redis_client` (Modul-Level) wird bei graceful Shutdown nicht explizit geschlossen.
-- **Status:** Betrieblich unproblematisch (Redis schließt idle Connections automatisch).
-
-#### LIMIT-05: Fernet ≠ AES-256
+#### LIMIT-04: Fernet ≠ AES-256
 - **Problem:** README beschreibt Verschlüsselung als "AES-256". Fernet nutzt intern AES-128-CBC.
 - **Status:** Dokumentation in README korrigiert ("AES/Fernet-verschlüsselt"). Sicherheitsniveau bleibt hoch.
 
@@ -321,14 +320,14 @@ Die folgende Roadmap ist in Meilensteine (M) gegliedert, die aufeinander aufbaue
 ### Meilenstein 5: RAG-Pipeline ✅ ABGESCHLOSSEN
 > **Ergebnis:** Hochgeladene PDFs werden vektorisiert und bei Queries genutzt.
 
-- [x] Embedding-Modell: `text-embedding-004` (Google, 768 Dim.) via `google-generativeai`
+- [x] Embedding-Modell: `text-embedding-004` (Google, 768 Dim.) via `google-genai`
 - [x] Nach PDF-Upload: Text in Chunks aufteilen (500 Wörter, 50 Wörter Overlap)
 - [x] Für jeden Chunk: Embedding erstellen, in pgvector-Tabelle speichern
 - [x] Chat-Completions: Wenn `file_ids` übergeben, Cosine-Ähnlichkeitssuche via pgvector
 - [x] Top-5-Chunks als Kontext in System-Prompt eingefügt
 - [x] Document-Management-API: `GET /v1/files`, `GET /v1/files/{id}`, `DELETE /v1/files/{id}`
 - [x] Download-Endpoint: `GET /v1/files/{id}/download`
-- [x] Web-Search-Tool: Serper API (primär) + DuckDuckGo (Fallback) – echte Implementierung
+- [x] Web-Search-Tool: Serper API (primär); DuckDuckGo-Fallback bleibt bewusst Phase 2
 
 **Abnahmekriterium:** ✅ PDF hochladen, Frage stellen, Antwort enthält PDF-Inhalte.
 
@@ -410,6 +409,7 @@ Die folgende Roadmap ist in Meilensteine (M) gegliedert, die aufeinander aufbaue
 - [x] End-to-End-Verifikation: Alle 39 Backend-Tests grün, API-Endpunkte live und erreichbar
 - [x] **Architektur-Audit (April 2026, Runde 1):** BUG-04–07 behoben (API-Response-Format, Auth-Header, IVFFlat-Index, DEFAULT_MODELS)
 - [x] **Architektur-Audit (April 2026, Runde 2):** BUG-08–14 behoben (HITL Re-Trigger, Worker-Startup, DELETE 404, Encryption-Key-Validation, Test-Coverage, Doc-Accuracy, HITL-Security)
+- [x] **Audit (April 2026, Runde 3):** BUG-15 behoben; README/ROADMAP-Claims gegen Code, Docker und Tests harmonisiert
 
 **Abnahmekriterium:** ✅ Alle Tests grün. `.env.example` dokumentiert vollständig den Onboarding-Pfad.
 
@@ -428,7 +428,7 @@ M5.5: HTTPS für Hetzner VPS             [✅ Fertig]  → Caddy + Let's Encrypt
 M6: Authentifizierung & Sicherheit      [✅ Fertig]  → API-Key-Auth, erweiterter Schutz ✓
 M7: Fehlerbehandlung & Logging          [✅ Fertig]  → /health, /readyz, Log-Rotation ✓
 M8: Tests                               [✅ Fertig]  → 39 Backend-Tests, alle grün ✓
-M9: Dokumentation & QA                  [✅ Fertig]  → Onboarding-Ready, Audit-Fixes BUG-04–14 ✓
+M9: Dokumentation & QA                  [✅ Fertig]  → Onboarding-Ready, Audit-Fixes BUG-04–15 ✓
 ─────────────────────────────────────────────────────────────────────────────
 🎉  v1.0 STABIL – Bereit für Produktion!
 v1.1 HARDENED – arq Worker, User-Keys, Multi-Provider, IVFFlat-Fix, HITL-Security ✅
@@ -439,7 +439,7 @@ v1.1 HARDENED – arq Worker, User-Keys, Multi-Provider, IVFFlat-Fix, HITL-Secur
 > Das **v1.1 Hardened**-Release bringt zusätzlich: arq Worker, nutzerspezifische
 > API-Keys (Fernet-verschlüsselt), Multi-Model Routing (Gemini/Mistral/DeepSeek),
 > persistentes HITL via Redis, HITL-User-Binding (Security) und mehrere kritische
-> Bug-Fixes aus dem zweistufigen April-2026-Audit (BUG-04–14).
+> Bug-Fixes aus dem dreistufigen April-2026-Audit (BUG-04–15).
 
 ---
 
