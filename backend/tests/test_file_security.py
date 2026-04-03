@@ -44,10 +44,10 @@ class _SessionFactory:
         session = self._session
 
         class _Context:
-            async def __aenter__(self_inner):
+            async def __aenter__(self):
                 return session
 
-            async def __aexit__(self_inner, exc_type, exc, tb):
+            async def __aexit__(self, exc_type, exc, tb):
                 return None
 
         return _Context()

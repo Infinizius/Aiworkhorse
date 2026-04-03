@@ -12,7 +12,7 @@ class UploadedFile(Base):
     __tablename__ = "uploaded_files"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(255), nullable=False, index=True, default="system_default")
+    user_id = Column(String(255), nullable=False, index=True)
     filename = Column(String(255), nullable=False)
     path = Column(String(512), nullable=False)
     extracted_text = Column(Text, nullable=True)
