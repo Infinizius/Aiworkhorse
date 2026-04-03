@@ -185,3 +185,24 @@ async def test_rag_context_returns_empty_when_user_has_no_access():
         app.state.db_session_factory = original_factory
 
     assert rag_context == ""
+
+
+@pytest.mark.parametrize("user_id", ["", None])
+async def test_rag_context_returns_empty_without_requesting_user(user_id):
+    session = MagicMock()
+    session.execute = AsyncMock(return_value=_Result(scalars_all=[]))
+    original_factory = app.state.db_session_factory
+    app.state.db_session_factory = _SessionFactory(session)
+
+    try:
+        with patch("main.asyncio.to_thread", new=AsyncMock(return_value=SimpleNamespace(embeddings=[SimpleNamespace(values=[0.1, 0.2])]))):
+            rag_context = await _get_rag_context(
+                ["owned-file"],
+                "Summarize",
+                app,
+                user_id,
+            )
+    finally:
+        app.state.db_session_factory = original_factory
+
+    assert rag_context == ""
