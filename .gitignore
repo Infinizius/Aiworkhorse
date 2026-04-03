@@ -3,6 +3,8 @@ node_modules/
 coverage/
 .DS_Store
 *.log
+logs/
+backend/logs/
 .env*
 !.env.example
 __pycache__/

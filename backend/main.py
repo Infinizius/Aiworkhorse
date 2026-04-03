@@ -134,6 +134,9 @@ async def lifespan(app_instance: FastAPI):
 
     # Shutdown
     _thread_executor.shutdown(wait=True)
+    if getattr(app_instance.state, "arq_pool", None):
+        await app_instance.state.arq_pool.aclose()
+    await redis_client.aclose()
     if getattr(app_instance.state, "db_engine", None):
         await app_instance.state.db_engine.dispose()
 
