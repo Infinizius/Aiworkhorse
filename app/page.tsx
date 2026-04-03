@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { ExternalLink, Shield, Database, Cpu, Radio, FileText, ArrowRight } from 'lucide-react';
 
 const OPEN_WEBUI_URL = process.env.NEXT_PUBLIC_OPEN_WEBUI_URL ?? 'http://localhost:3002';
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
 interface ServiceCardProps {
   title: string;
@@ -144,17 +143,19 @@ export default function HomePage() {
             />
             <ServiceCard
               title="FastAPI Backend"
-              description="REST-API mit Gemini-Integration, HITL-Freigaben und Rate Limiting."
-              href={`${API_URL}/docs`}
+              description="REST-API nur intern erreichbar; Zugriff auf die Doku läuft über den Dashboard-Proxy."
+              href="/docs"
               icon={<Cpu className="h-5 w-5" />}
               badge="API"
+              internal
             />
             <ServiceCard
               title="API Docs (Swagger)"
               description="Vollständige OpenAPI-Dokumentation aller Endpunkte."
-              href={`${API_URL}/redoc`}
+              href="/redoc"
               icon={<Database className="h-5 w-5" />}
               badge="Docs"
+              internal
             />
             <ServiceCard
               title="Dokumente"

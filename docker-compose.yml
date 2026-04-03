@@ -37,6 +37,7 @@ services:
 
   api:
     # FastAPI Gehirn - läuft zwingend unter 1000:1000 für saubere Upload-Permissions
+    # Kein Host-Port: nur intern über Open WebUI / Dashboard-Proxy erreichbar.
     image: python:3.11-slim
     container_name: ai-workhorse-api
     user: "1000:1000"
@@ -63,13 +64,32 @@ services:
       WEBUI_API_KEY: ${WEBUI_API_KEY:-}
       WEBUI_INTERNAL_URL: ${WEBUI_INTERNAL_URL:-http://ai-workhorse-webui:8080}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3002,http://localhost:3001}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3002}
       HOME: /tmp
       PATH: /tmp/.local/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
     # Hot-Reload für Vibe-Coding
     command: bash -c "pip install --no-cache-dir -r requirements.txt && python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    restart: unless-stopped
+
+  dashboard:
+    # Optionales Next.js-Dashboard - spricht nur über den internen Proxy mit FastAPI.
+    image: node:20-alpine
+    container_name: ai-workhorse-dashboard
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      API_KEY: ${API_KEY:-}
+      INTERNAL_API_URL: ${INTERNAL_API_URL:-http://ai-workhorse-api:8000}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/backend}
+      NEXT_PUBLIC_OPEN_WEBUI_URL: ${NEXT_PUBLIC_OPEN_WEBUI_URL:-http://localhost:3002}
+      HOME: /tmp
+      PATH: /tmp/.local/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
+    command: sh -c "npm install && npm run dev -- --hostname 0.0.0.0 --port 3001"
     ports:
-      - "8000:8000"
+      - "3001:3001"
+    depends_on:
+      - api
     restart: unless-stopped
 
   worker:

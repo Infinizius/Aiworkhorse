@@ -40,7 +40,7 @@ Hier trifft ein ultra-kompatibles OpenAI-Interface auf ein eigens gehärtetes Ba
 
 ## 🏗️ Systemarchitektur (v1.1)
 
-Das Zusammenspiel von 6 isolierten Docker-Containern garantiert maximale Ausfallsicherheit:
+Das Zusammenspiel von 7 isolierten Docker-Containern garantiert maximale Ausfallsicherheit:
 
 ```mermaid
 flowchart TD
@@ -48,6 +48,8 @@ flowchart TD
     
     subgraph Frontend [UI Layer]
         Caddy -- "HTTP" --> WebUI(Open WebUI\nPort 3002)
+        User -- "HTTP (3001)" --> Dashboard(Next.js Dashboard\nPort 3001)
+        Dashboard -- "Proxy /api" --> API
     end
     
     subgraph Backend [AI Engine Layer]
@@ -90,8 +92,9 @@ docker compose up -d
 ```
 
 - 💬 **Chat UI:** [http://localhost:3002](http://localhost:3002)
-- ⚙️ **API Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
-- 🩺 **Health:** [http://localhost:8000/health](http://localhost:8000/health)
+- 📊 **Dashboard:** [http://localhost:3001](http://localhost:3001)
+- ⚙️ **API Docs (via Dashboard-Proxy):** [http://localhost:3001/docs](http://localhost:3001/docs)
+- 🩺 **Health (via Dashboard-Proxy):** [http://localhost:3001/health](http://localhost:3001/health)
 
 ### 3. Nutzerspezifische Keys konfigurieren
 
@@ -102,9 +105,7 @@ Sende einen POST-Request an `/v1/user/config`, um deine eigenen API-Keys zu hint
 ### 4. Next.js-Dashboard (optional)
 
 Das Dashboard läuft auf Port 3001 und zeigt Service-Status, verfügbare Modelle und hochgeladene Dokumente.  
-Wenn `API_KEY` gesetzt ist, muss `NEXT_PUBLIC_API_KEY` in der `.env` auf denselben Wert gesetzt werden, damit das Dashboard die API erreichen kann.
-
-> **Sicherheitshinweis:** `NEXT_PUBLIC_API_KEY` ist im Browser-Bundle sichtbar. Nur für private Netzwerke / lokalen Betrieb empfohlen.
+Es spricht ausschließlich über einen serverseitigen Proxy mit dem FastAPI-Backend; Port 8000 wird nicht mehr auf dem Host veröffentlicht.
 
 ---
 

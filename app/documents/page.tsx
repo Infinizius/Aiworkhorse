@@ -4,13 +4,10 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Trash2, RefreshCw, Calendar, Layers, Eye, EyeOff, Download } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-// NEXT_PUBLIC_API_KEY is optional: when set, it is sent as Bearer token.
-// Leave empty for local dev (when the backend has API_KEY unset = auth disabled).
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? '';
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api/backend';
 
 function apiHeaders(): HeadersInit {
-  return API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {};
+  return {};
 }
 
 interface DocumentFile {

@@ -1,9 +1,9 @@
 /**
  * AI-Workhorse API client utilities.
- * All functions communicate with the FastAPI backend (NEXT_PUBLIC_API_URL).
+ * All functions communicate with the dashboard-side backend proxy.
  */
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api/backend";
 
 export interface Message {
   role: "user" | "assistant" | "system";
