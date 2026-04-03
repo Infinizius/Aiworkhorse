@@ -10,8 +10,8 @@ import time
 import unicodedata
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import Any, List, Optional
 
 from google import genai
 import httpx
@@ -21,12 +21,12 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Requ
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from models import Base, FileEmbedding, UserConfig, UploadedFile as UploadedFileModel
+from models import Base, FileEmbedding, GoalTask as GoalTaskModel, UserConfig, UploadedFile as UploadedFileModel
 from security_utils import decrypt_key, encrypt_key
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -219,6 +219,17 @@ class UserConfigRequest(BaseModel):
     provider: str
     api_key: str
 
+
+class GoalCreateRequest(BaseModel):
+    goal: str
+    model: Optional[str] = "gemini-3-flash-preview"
+    schedule_minutes: Optional[int] = None
+
+
+class ToolExecutionRequest(BaseModel):
+    tool_name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 _MSG_MISSING_API_KEY = "GEMINI_API_KEY is not configured."
@@ -307,6 +318,28 @@ async def tool_web_search(query: str):
         except Exception: pass
     return f"Search results for '{query}' could not be retrieved."
 
+
+def _is_goal_engine_request(request: Request) -> bool:
+    return request.headers.get("X-Source", "").strip().lower() == "goal-engine"
+
+
+def _serialize_goal(goal: GoalTaskModel) -> dict[str, Any]:
+    return {
+        "id": goal.id,
+        "user_id": goal.user_id,
+        "goal": goal.goal,
+        "model": goal.model,
+        "status": goal.status,
+        "schedule_minutes": goal.schedule_minutes,
+        "next_run_at": goal.next_run_at.isoformat() if goal.next_run_at else None,
+        "last_run_at": goal.last_run_at.isoformat() if goal.last_run_at else None,
+        "last_result": goal.last_result,
+        "last_error": goal.last_error,
+        "run_count": goal.run_count,
+        "created_at": goal.created_at.isoformat() if goal.created_at else None,
+        "updated_at": goal.updated_at.isoformat() if goal.updated_at else None,
+    }
+
 # ─── Auth & Rate Limiting ─────────────────────────────────────────────────────
 
 def _get_client_ip(request: Request) -> str:
@@ -327,6 +360,11 @@ async def verify_api_key(request: Request, credentials: Optional[HTTPAuthorizati
     if not API_KEY: return
     if credentials is None or credentials.credentials != API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+async def verify_goal_engine_source(request: Request):
+    if not _is_goal_engine_request(request):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
 async def get_current_user(request: Request) -> str:
     user_email = request.headers.get("X-User-Email")
@@ -474,10 +512,80 @@ async def approve_tool(execution_id: str, req: ToolApprovalRequest, approver_id:
     await redis_client.delete(f"hitl_owner:{execution_id}")
     return {"status": "success", "execution_id": execution_id, "approved": req.approved}
 
+
+@app.post(
+    "/internal/tools/execute",
+    include_in_schema=False,
+    dependencies=[Depends(verify_api_key), Depends(verify_goal_engine_source)],
+)
+async def execute_internal_tool(payload: ToolExecutionRequest):
+    if payload.tool_name == "web_search":
+        query = str(payload.arguments.get("query", "")).strip()
+        if not query:
+            raise HTTPException(status_code=400, detail="query is required")
+        result = await tool_web_search(query)
+        return {"tool_name": payload.tool_name, "result": result}
+    raise HTTPException(status_code=404, detail="Tool not found")
+
+
+@app.post("/v1/goals", dependencies=[Depends(verify_api_key)])
+async def create_goal(goal_request: GoalCreateRequest, req: Request, user_id: str = Depends(get_current_user)):
+    goal_text = goal_request.goal.strip()
+    if not goal_text:
+        raise HTTPException(status_code=400, detail="Goal must not be empty")
+    if goal_request.schedule_minutes is not None and goal_request.schedule_minutes < 1:
+        raise HTTPException(status_code=400, detail="schedule_minutes must be >= 1")
+
+    now = datetime.now(timezone.utc)
+    goal = GoalTaskModel(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        goal=goal_text,
+        model=(goal_request.model or "gemini-3-flash-preview").strip() or "gemini-3-flash-preview",
+        status="pending",
+        schedule_minutes=goal_request.schedule_minutes,
+        next_run_at=now,
+        run_count=0,
+        created_at=now,
+        updated_at=now,
+    )
+    async with req.app.state.db_session_factory() as session:
+        session.add(goal)
+        await session.commit()
+    return _serialize_goal(goal)
+
+
+@app.get("/v1/goals", dependencies=[Depends(verify_api_key)])
+async def list_goals(req: Request, user_id: str = Depends(get_current_user)):
+    async with req.app.state.db_session_factory() as session:
+        result = await session.execute(
+            select(GoalTaskModel)
+            .where(GoalTaskModel.user_id == user_id)
+            .order_by(GoalTaskModel.created_at.desc())
+        )
+        goals = result.scalars().all()
+    return {"goals": [_serialize_goal(goal) for goal in goals], "total": len(goals)}
+
+
+@app.get("/v1/goals/{goal_id}", dependencies=[Depends(verify_api_key)])
+async def get_goal(goal_id: str, req: Request, user_id: str = Depends(get_current_user)):
+    async with req.app.state.db_session_factory() as session:
+        result = await session.execute(
+            select(GoalTaskModel).where(
+                GoalTaskModel.id == goal_id,
+                GoalTaskModel.user_id == user_id,
+            )
+        )
+        goal = result.scalar_one_or_none()
+    if not goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    return _serialize_goal(goal)
+
 @app.post("/v1/chat/completions", dependencies=[Depends(verify_api_key), Depends(check_rate_limit)])
 async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, user_id: str = Depends(get_current_user)):
     secure_messages = apply_prompt_injection_defense(request.messages)
     model_name = request.model or "gemini-3-flash-preview"
+    is_goal_engine_request = _is_goal_engine_request(req)
 
     # Provider routing (codestral belongs to Mistral)
     provider = "gemini"
@@ -527,45 +635,46 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
             return f'data: {json.dumps({"id": chat_id, "object": "chat.completion.chunk", "created": created_ts, "model": model_name, "choices": [{"index": 0, "delta": {"content": c}}]})}\n\n'
 
         # Persistent HITL Logic via Redis – bounded by REACTIVE_MAX_ITERATIONS
-        for _iteration in range(REACTIVE_MAX_ITERATIONS):
-            needs_tool = any("search" in msg["content"].lower() for msg in msgs if msg["role"] == "user")
-            if not needs_tool:
-                break
+        if not is_goal_engine_request:
+            for _iteration in range(REACTIVE_MAX_ITERATIONS):
+                needs_tool = any("search" in msg["content"].lower() for msg in msgs if msg["role"] == "user")
+                if not needs_tool:
+                    break
 
-            execution_id = str(uuid.uuid4())
-            redis_key = f"approval:{execution_id}"
-            # BUG-14 fix: bind this execution_id to the requesting user so only
-            # the initiator can approve/deny it (prevents cross-user HITL manipulation).
-            await redis_client.set(f"hitl_owner:{execution_id}", user_id, ex=65)
-            yield _chunk(f"\n[SYSTEM] Tool-Freigabe erforderlich (Web-Search). execution_id: {execution_id}\n")
-            try:
-                deadline = time.time() + 60
-                approved = False
-                while time.time() < deadline:
-                    status = await redis_client.get(redis_key)
-                    if status == "approved":
-                        approved = True
-                        break
-                    elif status == "denied":
-                        break
-                    await asyncio.sleep(1)
-                    yield ": keep-alive\n\n"
+                execution_id = str(uuid.uuid4())
+                redis_key = f"approval:{execution_id}"
+                # BUG-14 fix: bind this execution_id to the requesting user so only
+                # the initiator can approve/deny it (prevents cross-user HITL manipulation).
+                await redis_client.set(f"hitl_owner:{execution_id}", user_id, ex=65)
+                yield _chunk(f"\n[SYSTEM] Tool-Freigabe erforderlich (Web-Search). execution_id: {execution_id}\n")
+                try:
+                    deadline = time.time() + 60
+                    approved = False
+                    while time.time() < deadline:
+                        status = await redis_client.get(redis_key)
+                        if status == "approved":
+                            approved = True
+                            break
+                        elif status == "denied":
+                            break
+                        await asyncio.sleep(1)
+                        yield ": keep-alive\n\n"
 
-                if approved:
-                    search_query = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "AI Workhorse")
-                    tool_result = await tool_web_search(search_query)
-                    yield _chunk(f"\n[TOOL] {tool_result}\n")
-                    msgs.append({"role": "user", "content": f"[Web-Search Ergebnis]\n{tool_result}\n\nBitte fortfahren."})
-                    # BUG-08 fix: exit HITL loop after successful tool call to prevent
-                    # re-triggering on the original user message in subsequent iterations.
+                    if approved:
+                        search_query = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "AI Workhorse")
+                        tool_result = await tool_web_search(search_query)
+                        yield _chunk(f"\n[TOOL] {tool_result}\n")
+                        msgs.append({"role": "user", "content": f"[Web-Search Ergebnis]\n{tool_result}\n\nBitte fortfahren."})
+                        # BUG-08 fix: exit HITL loop after successful tool call to prevent
+                        # re-triggering on the original user message in subsequent iterations.
+                        await redis_client.delete(f"hitl_owner:{execution_id}")
+                        break
+                    else:
+                        yield _chunk("\n[SYSTEM] Tool-Ausfuhrung abgelehnt oder Timeout.\n")
+                        break
+                finally:
+                    await redis_client.delete(redis_key)
                     await redis_client.delete(f"hitl_owner:{execution_id}")
-                    break
-                else:
-                    yield _chunk("\n[SYSTEM] Tool-Ausfuhrung abgelehnt oder Timeout.\n")
-                    break
-            finally:
-                await redis_client.delete(redis_key)
-                await redis_client.delete(f"hitl_owner:{execution_id}")
 
         def _convert_and_stream():
             try:
