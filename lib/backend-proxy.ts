@@ -35,7 +35,8 @@ function buildForwardHeaders(request: Request): Headers {
 function buildResponseHeaders(upstreamHeaders: Headers): Headers {
   const headers = new Headers();
   for (const [key, value] of upstreamHeaders.entries()) {
-    if (key.toLowerCase() === 'content-encoding' || key.toLowerCase() === 'transfer-encoding') {
+    const lowerKey = key.toLowerCase();
+    if (lowerKey === 'content-encoding' || lowerKey === 'transfer-encoding') {
       continue;
     }
     headers.set(key, value);

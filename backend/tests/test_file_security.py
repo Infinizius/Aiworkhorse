@@ -165,3 +165,23 @@ async def test_rag_context_ignores_unowned_file_ids():
 
     assert "owned-file" in rag_context
     assert "foreign-file" not in rag_context
+
+
+async def test_rag_context_returns_empty_when_user_has_no_access():
+    session = MagicMock()
+    session.execute = AsyncMock(return_value=_Result(scalars_all=[]))
+    original_factory = app.state.db_session_factory
+    app.state.db_session_factory = _SessionFactory(session)
+
+    try:
+        with patch("main.asyncio.to_thread", new=AsyncMock(return_value=SimpleNamespace(embeddings=[SimpleNamespace(values=[0.1, 0.2])]))):
+            rag_context = await _get_rag_context(
+                ["foreign-file"],
+                "Summarize",
+                app,
+                "alice@example.com",
+            )
+    finally:
+        app.state.db_session_factory = original_factory
+
+    assert rag_context == ""
