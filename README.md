@@ -139,6 +139,7 @@ GESAMTSTATUS v1.1              ████████████████�
 - v1.1-Kernfeatures verifiziert: User-Keys, arq-Worker, Redis-HITL, Multi-Provider-Routing und Open-WebUI-Kompatibilität sind vorhanden.
 - Dokumentation korrigiert: Fernet-Wording vereinheitlicht; Web-Search ist korrekt als Serper-only mit DuckDuckGo in Phase 2 beschrieben.
 - Runtime-Härtung ergänzt: Graceful Shutdown schließt Redis- und arq-Verbindungen jetzt explizit.
+- Verifiziert mit `npm run lint`, `npm run build` und `python3 -m pytest tests -v` (40/40 Backend-Tests grün).
 
 > **Bekannte Limitierungen (non-blocking):** DuckDuckGo-Fallback nicht implementiert (nur Serper), HITL-Trigger-Heuristik (`"search"`-Keyword) zu breit (False Positives; Re-Trigger nach Tool-Call mit BUG-08 behoben), SSE blockiert Event-Loop bei Streaming. Alle für Phase 2 vorgesehen.
 

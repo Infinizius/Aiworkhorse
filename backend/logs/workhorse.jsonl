@@ -286,3 +286,7 @@
 {"timestamp": "2026-04-02T19:36:28.058159Z", "level": "INFO", "message": "Alembic migrations applied successfully"}
 {"timestamp": "2026-04-02T19:36:28.058245Z", "level": "INFO", "message": "Database initialized", "event": "startup", "db": "connected"}
 {"timestamp": "2026-04-02T19:36:28.062927Z", "level": "INFO", "message": "Arq worker pool initialized."}
+{"timestamp": "2026-04-03T16:54:15.762341Z", "level": "INFO", "message": "Gemini client initialized (google-genai)", "event": "startup", "client": "google-genai"}
+{"timestamp": "2026-04-03T16:54:15.762920Z", "level": "INFO", "message": "Alembic migrations applied successfully"}
+{"timestamp": "2026-04-03T16:54:15.763035Z", "level": "INFO", "message": "Database initialized", "event": "startup", "db": "connected"}
+{"timestamp": "2026-04-03T16:54:15.763142Z", "level": "INFO", "message": "Arq worker pool initialized."}
