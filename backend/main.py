@@ -741,24 +741,25 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
         content = last_ai.content if last_ai else ""
 
         # Phase 3: Handle core_memory updates from tool results
+        from agents.tools import CORE_MEMORY_MARKER_PREFIX
         for msg in result["messages"]:
-            if hasattr(msg, "content") and isinstance(msg.content, str) and msg.content.startswith("__CORE_MEMORY_UPDATE__"):
-                parts = msg.content.split("|", 2)
-                if len(parts) == 3:
-                    mem_user_id, mem_content = parts[1], parts[2]
-                    try:
-                        async with req.app.state.db_session_factory() as session:
-                            res = await session.execute(
-                                select(CoreMemory).where(CoreMemory.user_id == mem_user_id)
-                            )
-                            existing = res.scalar_one_or_none()
-                            if existing:
-                                existing.content = mem_content
-                            else:
-                                session.add(CoreMemory(user_id=mem_user_id, content=mem_content))
-                            await session.commit()
-                    except Exception as exc:
-                        logger.warning(f"Failed to update core memory: {exc}")
+            if hasattr(msg, "content") and isinstance(msg.content, str) and msg.content.startswith(CORE_MEMORY_MARKER_PREFIX):
+                try:
+                    payload = json.loads(msg.content[len(CORE_MEMORY_MARKER_PREFIX):])
+                    mem_user_id = payload["user_id"]
+                    mem_content = payload["content"]
+                    async with req.app.state.db_session_factory() as session:
+                        res = await session.execute(
+                            select(CoreMemory).where(CoreMemory.user_id == mem_user_id)
+                        )
+                        existing = res.scalar_one_or_none()
+                        if existing:
+                            existing.content = mem_content
+                        else:
+                            session.add(CoreMemory(user_id=mem_user_id, content=mem_content))
+                        await session.commit()
+                except Exception as exc:
+                    logger.warning(f"Failed to update core memory: {exc}")
 
         _agent_chat_id = f"chatcmpl-{uuid.uuid4().hex}"
         _agent_ts = int(_time.time())

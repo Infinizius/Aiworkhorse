@@ -162,10 +162,17 @@ def update_core_memory(user_id: str, memory_content: str) -> str:
     NOTE: This tool is synchronous. The actual DB write is performed by the
     graph node wrapper that intercepts this tool's output.
     """
+    import json as _json
     # The actual DB write is handled by the graph's tool execution node.
-    # This tool just returns a marker that the graph node picks up.
-    return f"__CORE_MEMORY_UPDATE__|{user_id}|{memory_content}"
+    # This tool returns a JSON marker that the graph node picks up.
+    return CORE_MEMORY_MARKER_PREFIX + _json.dumps({
+        "user_id": user_id,
+        "content": memory_content,
+    })
 
+
+# Marker prefix for core memory updates (used by tools.py and main.py)
+CORE_MEMORY_MARKER_PREFIX = "__CORE_MEMORY_UPDATE__:"
 
 # All tools available to the supervisor
 AGENT_TOOLS = [web_search, read_workspace_file, write_workspace_file, update_core_memory]

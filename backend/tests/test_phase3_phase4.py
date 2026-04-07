@@ -143,17 +143,30 @@ class TestCoreMemoryInjection:
 # ─── Phase 3: Core Memory Tool ───────────────────────────────────────────────
 
 class TestCoreMemoryTool:
-    """The update_core_memory tool must return a marker string."""
+    """The update_core_memory tool must return a JSON marker string."""
 
     def test_update_core_memory_returns_marker(self):
-        from agents.tools import update_core_memory
+        import json
+        from agents.tools import update_core_memory, CORE_MEMORY_MARKER_PREFIX
         result = update_core_memory.invoke({
             "user_id": "user123",
             "memory_content": "User likes Python",
         })
-        assert "__CORE_MEMORY_UPDATE__" in result
-        assert "user123" in result
-        assert "User likes Python" in result
+        assert result.startswith(CORE_MEMORY_MARKER_PREFIX)
+        payload = json.loads(result[len(CORE_MEMORY_MARKER_PREFIX):])
+        assert payload["user_id"] == "user123"
+        assert payload["content"] == "User likes Python"
+
+    def test_update_core_memory_handles_pipes_in_content(self):
+        """Content with pipe characters must be handled correctly (JSON serialization)."""
+        import json
+        from agents.tools import update_core_memory, CORE_MEMORY_MARKER_PREFIX
+        result = update_core_memory.invoke({
+            "user_id": "user123",
+            "memory_content": "User likes A | B | C",
+        })
+        payload = json.loads(result[len(CORE_MEMORY_MARKER_PREFIX):])
+        assert payload["content"] == "User likes A | B | C"
 
 
 # ─── Phase 4: Dashboard JWT ──────────────────────────────────────────────────
