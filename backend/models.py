@@ -48,6 +48,20 @@ class UserConfig(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class UserVault(Base):
+    __tablename__ = "user_vault"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(255), nullable=False, unique=True, index=True)
+    openwebui_api_key = Column(Text, nullable=False)  # Encrypted via Fernet
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 class GoalTask(Base):
     __tablename__ = "goal_tasks"
 

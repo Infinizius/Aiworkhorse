@@ -26,7 +26,7 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from models import Base, FileEmbedding, GoalTask as GoalTaskModel, UserConfig, UploadedFile as UploadedFileModel
+from models import Base, FileEmbedding, GoalTask as GoalTaskModel, UserConfig, UserVault, UploadedFile as UploadedFileModel
 from security_utils import decrypt_key, encrypt_key
 from embed_utils import nvidia_embed
 
@@ -230,6 +230,10 @@ class GoalCreateRequest(BaseModel):
 class ToolExecutionRequest(BaseModel):
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentRegisterRequest(BaseModel):
+    openwebui_api_key: str
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -509,6 +513,31 @@ async def update_user_config(config: UserConfigRequest, user_id: str = Depends(g
         await session.commit()
     return {"status": "success"}
 
+@app.post("/v1/agent/register", dependencies=[Depends(verify_api_key)])
+async def register_agent(
+    payload: AgentRegisterRequest,
+    req: Request,
+    user_id: str = Depends(get_current_user),
+):
+    """
+    Phase 1 – Token Vault: Store an encrypted Open WebUI API key so the
+    background daemon can write back into the user's chat threads.
+    """
+    if not payload.openwebui_api_key or not payload.openwebui_api_key.strip():
+        raise HTTPException(status_code=400, detail="openwebui_api_key is required")
+    encrypted = encrypt_key(payload.openwebui_api_key.strip())
+    async with req.app.state.db_session_factory() as session:
+        res = await session.execute(
+            select(UserVault).where(UserVault.user_id == user_id)
+        )
+        existing = res.scalar_one_or_none()
+        if existing:
+            existing.openwebui_api_key = encrypted
+        else:
+            session.add(UserVault(user_id=user_id, openwebui_api_key=encrypted))
+        await session.commit()
+    return {"status": "registered", "user_id": user_id}
+
 @app.get("/v1/models")
 async def list_models():
     _ts = 1700000000  # Fixed creation timestamp for stability
@@ -526,6 +555,7 @@ async def list_models():
             {"id": "mistral-small-latest", "object": "model", "created": _ts, "owned_by": "mistral"},
             {"id": "codestral-latest", "object": "model", "created": _ts, "owned_by": "mistral"},
             {"id": "glm-4.7", "object": "model", "created": _ts, "owned_by": "nvidia"},
+            {"id": "maxclaw-agent", "object": "model", "created": _ts, "owned_by": "ai-workhorse"},
         ],
     }
 
@@ -620,6 +650,49 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
     secure_messages = apply_prompt_injection_defense(request.messages)
     model_name = request.model or "gemini-3-flash-preview"
     is_goal_engine_request = _is_goal_engine_request(req)
+
+    # ── MaxClaw Agent route (Phase 2: LangGraph → OpenAI SSE) ──
+    if model_name == "maxclaw-agent":
+        from langchain_core.messages import HumanMessage as LC_HumanMessage, SystemMessage as LC_SystemMessage, AIMessage as LC_AIMessage
+        from agents.dummy_weather import build_dummy_graph
+        from core.sse_adapter import langgraph_to_openai_sse
+
+        lc_messages = []
+        for msg in secure_messages:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "system":
+                lc_messages.append(LC_SystemMessage(content=content))
+            elif role == "user":
+                lc_messages.append(LC_HumanMessage(content=content))
+            elif role == "assistant":
+                lc_messages.append(LC_AIMessage(content=content))
+
+        graph = build_dummy_graph()
+
+        if request.stream:
+            return StreamingResponse(
+                langgraph_to_openai_sse(graph, lc_messages, model_name),
+                media_type="text/event-stream",
+            )
+
+        # Non-streaming: collect all events and return a single response
+        import time as _time
+        result = await graph.ainvoke({"messages": lc_messages})
+        last_ai = next(
+            (m for m in reversed(result["messages"]) if hasattr(m, "content") and m.content),
+            None,
+        )
+        content = last_ai.content if last_ai else ""
+        _agent_chat_id = f"chatcmpl-{uuid.uuid4().hex}"
+        _agent_ts = int(_time.time())
+        return {
+            "id": _agent_chat_id,
+            "object": "chat.completion",
+            "created": _agent_ts,
+            "model": model_name,
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": content}}],
+        }
 
     # Provider routing (codestral belongs to Mistral)
     provider = "gemini"
