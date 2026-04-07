@@ -15,8 +15,11 @@
 
 ---
 
-![Open WebUI Chat Interface](assets/chat_ui.png)
-*(v1.1 Hardened + Phase 2 Foundation: Nutzerspezifische Keys, asynchrones PDF-Processing, persistentes HITL und die Goal-Engine-Basis sind aktiv!)*
+![Open WebUI Chat Interface](assets/chat_ui.svg)
+*(Open WebUI Chat · Gemini / Mistral / DeepSeek · RAG-Pipeline mit PDF-Upload · persistentes HITL)*
+
+![Next.js Dashboard](assets/dashboard.svg)
+*(Next.js Dashboard · Service-Status · Dokumente · API-Docs via Proxy)*
 
 </div>
 
@@ -45,28 +48,28 @@ Das Zusammenspiel von 7 Core-Containern (+ optionalem Caddy im Prod-Profil) gara
 
 ```mermaid
 flowchart TD
-    User([Browser / User]) -- "HTTPS (443)" --> Caddy[Caddy Reverse Proxy\n TLS Let's Encrypt]
-    
-    subgraph Frontend [UI Layer]
-        Caddy -- "HTTP" --> WebUI(Open WebUI\nPort 3002)
-        User -- "HTTP (3001)" --> Dashboard(Next.js Dashboard\nPort 3001)
+    User([Browser / User]) -- "HTTPS (443)" --> Caddy["Caddy Reverse Proxy<br/>TLS · Let's Encrypt"]
+
+    subgraph Frontend ["UI Layer"]
+        Caddy -- "HTTP" --> WebUI["Open WebUI<br/>Port 3002"]
+        User -- "HTTP (3001)" --> Dashboard["Next.js Dashboard<br/>Port 3001"]
         Dashboard -- "Proxy /api" --> API
     end
-    
-    subgraph Backend [AI Engine Layer]
-        WebUI -- "REST /v1\nBearer Token" --> API{FastAPI Backend\nPort 8000}
-        API -- "Queue Jobs" --> Worker(arq Worker\nBackground Tasks)
-        GoalEngine(LangGraph Goal Engine\nBackground Daemon) -- "POST /internal/tools/execute" --> API
+
+    subgraph Backend ["AI Engine Layer"]
+        WebUI -- "REST /v1 · Bearer Token" --> API{"FastAPI Backend<br/>Port 8000"}
+        API -- "Queue Jobs" --> Worker["arq Worker<br/>Background Tasks"]
+        GoalEngine["LangGraph Goal Engine<br/>Background Daemon"] -- "POST /internal/tools/execute" --> API
         GoalEngine -- "Checkpointing / GoalTasks" --> Postgres
     end
-    
-    subgraph Data [Storage & Cache]
+
+    subgraph Data ["Storage & Cache"]
         API -- "Rate Limiting / HITL / Cache" --> Redis[(Redis 7)]
         API -- "User Configs / RAG" --> Postgres[(PostgreSQL 16)]
         Worker -- "Vector Insert" --> Postgres
     end
-    
-    API -- "Dynamic User-Key Routing" -.-> LLMs((Gemini / Mistral / DeepSeek))
+
+    API -. "Dynamic User-Key Routing" .-> LLMs(("Gemini · Mistral · DeepSeek"))
 ```
 
 ---

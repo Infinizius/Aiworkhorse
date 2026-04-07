@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620">
+  <defs><style>text{font-family:system-ui,-apple-system,sans-serif}</style></defs>
+  <rect x="0" y="0" width="260" height="620" fill="#0f172a" rx="0" ry="0"/>
+  <rect x="260" y="0" width="700" height="620" fill="#030712" rx="0" ry="0"/>
+  <rect x="260" y="0" width="1" height="620" fill="#1f2937" rx="0" ry="0"/>
+  <rect x="0" y="0" width="260" height="56" fill="#0a1020" rx="0" ry="0"/>
+  <text x="16" y="23" font-size="18" fill="#60a5fa" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">⚙</text>
+  <text x="42" y="26" font-size="15" fill="#f3f4f6" font-weight="bold" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">AI-Workhorse</text>
+  <text x="16" y="43" font-size="10" fill="#6b7280" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Gemini powered</text>
+  <rect x="12" y="64" width="236" height="36" fill="#1e293b" rx="8" ry="8" stroke="#374151" stroke-width="1"/>
+  <text x="130" y="87" font-size="13" fill="#d1d5db" font-weight="600" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif">+ Neuer Chat</text>
+  <text x="16" y="122" font-size="11" fill="#6b7280" font-weight="600" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Verlauf</text>
+  <rect x="8" y="130" width="244" height="34" fill="#1e3a8a" rx="8" ry="8" stroke="#2563eb" stroke-width="1"/>
+  <text x="16" y="151" font-size="12" fill="#f3f4f6" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">💬</text>
+  <text x="34" y="151" font-size="12" fill="#f3f4f6" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Kann ich dir mit DSGVO-Fragen.…</text>
+  <rect x="8" y="170" width="244" height="34" fill="transparent" rx="8" ry="8" stroke="transparent" stroke-width="1"/>
+  <text x="16" y="191" font-size="12" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">💬</text>
+  <text x="34" y="191" font-size="12" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Erkläre mir die RAG-Pipeline</text>
+  <rect x="8" y="210" width="244" height="34" fill="transparent" rx="8" ry="8" stroke="transparent" stroke-width="1"/>
+  <text x="16" y="231" font-size="12" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">💬</text>
+  <text x="34" y="231" font-size="12" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">PDF zusammenfassen: Bericht 20…</text>
+  <rect x="8" y="250" width="244" height="34" fill="transparent" rx="8" ry="8" stroke="transparent" stroke-width="1"/>
+  <text x="16" y="271" font-size="12" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">💬</text>
+  <text x="34" y="271" font-size="12" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Welche Modelle sind verfügbar?</text>
+  <rect x="8" y="290" width="244" height="34" fill="transparent" rx="8" ry="8" stroke="transparent" stroke-width="1"/>
+  <text x="16" y="311" font-size="12" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">💬</text>
+  <text x="34" y="311" font-size="12" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Mistral vs. DeepSeek Vergleich</text>
+  <rect x="0" y="570" width="260" height="50" fill="#0a1020" rx="0" ry="0"/>
+  <rect x="0" y="570" width="260" height="1" fill="#1f2937" rx="0" ry="0"/>
+  <circle cx="24" cy="595" r="14" fill="#2563eb"/>
+  <text x="24" y="599" font-size="13" fill="white" font-weight="bold" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif">A</text>
+  <text x="44" y="591" font-size="12" fill="#d1d5db" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">admin@example.com</text>
+  <text x="44" y="606" font-size="10" fill="#6b7280" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Gemini 3 Flash</text>
+  <rect x="260" y="0" width="700" height="56" fill="#0b1320" rx="0" ry="0"/>
+  <rect x="260" y="56" width="700" height="1" fill="#1f2937" rx="0" ry="0"/>
+  <text x="280" y="33" font-size="15" fill="#f3f4f6" font-weight="600" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Kann ich dir mit DSGVO-Fragen helfen?</text>
+  <rect x="780" y="15" width="160" height="28" fill="#1e3a8a" rx="8" ry="0"/>
+  <text x="860" y="33" font-size="11" fill="#93c5fd" font-weight="600" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif">⚡ gemini-3-flash-preview</text>
+  <rect x="280" y="80" width="660" height="54" fill="#1a2332" rx="10" ry="10" stroke="#1f2937" stroke-width="1"/>
+  <circle cx="300" cy="102" r="14" fill="#2563eb"/>
+  <text x="300" y="106" font-size="11" fill="white" font-weight="bold" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif">A</text>
+  <text x="324" y="100" font-size="13" fill="#f3f4f6" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Was ist DSGVO-Compliance bei KI-Systemen?</text>
+  <text x="324" y="118" font-size="12" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Ich brauche eine Erklärung für einen Unternehmens-Bericht.</text>
+  <rect x="280" y="148" width="660" height="130" fill="#0f1f35" rx="10" ry="10" stroke="#1e3a8a" stroke-width="1"/>
+  <circle cx="300" cy="170" r="14" fill="#1d4ed8"/>
+  <text x="300" y="174" font-size="12" fill="white" font-weight="bold" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif">🤖</text>
+  <text x="324" y="168" font-size="13" fill="#93c5fd" font-weight="600" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">DSGVO-Compliance für KI-Systeme umfasst:</text>
+  <text x="324" y="188" font-size="11" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">• Datensparsamkeit: Nur notwendige personenbezogene Daten verarbeiten</text>
+  <text x="324" y="206" font-size="11" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">• Transparenz: Nutzer über KI-Entscheidungen informieren</text>
+  <text x="324" y="224" font-size="11" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">• Recht auf Erklärung: Automatisierte Entscheidungen begründen</text>
+  <text x="324" y="242" font-size="11" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">• Datenschutz by Design: Privacy-Maßnahmen von Anfang an</text>
+  <text x="324" y="260" font-size="11" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">• EU-Hosting: Datenverarbeitung innerhalb der EU</text>
+  <rect x="280" y="292" width="660" height="36" fill="#1a2332" rx="10" ry="10" stroke="#1f2937" stroke-width="1"/>
+  <circle cx="300" cy="310" r="14" fill="#2563eb"/>
+  <text x="300" y="314" font-size="11" fill="white" font-weight="bold" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif">A</text>
+  <text x="324" y="314" font-size="13" fill="#f3f4f6" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Kannst du ein PDF mit meinem Bericht analysieren?</text>
+  <rect x="280" y="342" width="660" height="110" fill="#0f1f35" rx="10" ry="10" stroke="#1e3a8a" stroke-width="1"/>
+  <circle cx="300" cy="364" r="14" fill="#1d4ed8"/>
+  <text x="300" y="368" font-size="12" fill="white" font-weight="bold" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif">🤖</text>
+  <rect x="324" y="352" width="72" height="18" fill="#14532d" rx="5" ry="0"/>
+  <text x="360" y="364" font-size="10" fill="#4ade80" font-weight="600" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif">📎 RAG aktiv</text>
+  <text x="404" y="364" font-size="10" fill="#6b7280" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Bericht_2024.pdf</text>
+  <text x="324" y="380" font-size="11" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Ja! Lade dein PDF über den 📎-Button hoch. Ich analysiere es mit der</text>
+  <text x="324" y="398" font-size="11" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">RAG-Pipeline (pgvector + text-embedding-004) und beantworte deine</text>
+  <text x="324" y="416" font-size="11" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Fragen direkt auf Basis des Dokument-Inhalts.</text>
+  <text x="324" y="434" font-size="11" fill="#9ca3af" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Aktuell sind 3 Dokumente in der Wissensdatenbank verfügbar.</text>
+  <text x="324" y="466" font-size="16" fill="#60a5fa" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">● ● ●</text>
+  <text x="384" y="466" font-size="11" fill="#6b7280" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">  Gemini schreibt …</text>
+  <rect x="260" y="540" width="700" height="80" fill="#0b1320" rx="0" ry="0"/>
+  <rect x="260" y="540" width="700" height="1" fill="#1f2937" rx="0" ry="0"/>
+  <rect x="276" y="552" width="620" height="48" fill="#1f2937" rx="10" ry="10" stroke="#374151" stroke-width="1"/>
+  <text x="292" y="580" font-size="13" fill="#6b7280" font-weight="normal" text-anchor="start" font-family="system-ui, -apple-system, sans-serif">Schreibe eine Nachricht …</text>
+  <rect x="864" y="560" width="32" height="32" fill="#1e293b" rx="8" ry="0"/>
+  <text x="880" y="580" font-size="14" fill="#9ca3af" font-weight="normal" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif">📎</text>
+  <rect x="908" y="560" width="36" height="32" fill="#2563eb" rx="8" ry="0"/>
+  <text x="926" y="580" font-size="18" fill="white" font-weight="bold" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif">→</text>
+</svg>
