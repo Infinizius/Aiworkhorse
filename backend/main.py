@@ -28,10 +28,11 @@ from sqlalchemy.orm import sessionmaker
 
 from models import Base, FileEmbedding, GoalTask as GoalTaskModel, UserConfig, UploadedFile as UploadedFileModel
 from security_utils import decrypt_key, encrypt_key
+from embed_utils import nvidia_embed
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 from config import (
-    API_KEY, GEMINI_API_KEY, ENCRYPTION_KEY, SERPER_API_KEY, DEEPSEEK_API_KEY, 
+    API_KEY, GEMINI_API_KEY, NVIDIA_API_KEY, ENCRYPTION_KEY, SERPER_API_KEY, DEEPSEEK_API_KEY,
     MISTRAL_API_KEY, WEBUI_API_KEY, WEBUI_INTERNAL_URL, DATABASE_URL,
     REACTIVE_MAX_ITERATIONS, GOAL_MAX_ITERATIONS, CORS_ALLOW_ORIGINS,
     validate_config
@@ -314,14 +315,7 @@ async def _get_rag_context(
     if not getattr(app_instance.state, "db_session_factory", None):
         return ""
     try:
-        client: genai.Client = app_instance.state.gemini_client
-        response = await asyncio.to_thread(
-            client.models.embed_content,
-            model="text-embedding-004",
-            contents=query,
-            config={"task_type": "RETRIEVAL_QUERY"},
-        )
-        query_vec = response.embeddings[0].values
+        query_vec = await nvidia_embed(query, "query", NVIDIA_API_KEY)
         async with app_instance.state.db_session_factory() as session:
             accessible_file_ids = await _get_accessible_file_ids(session, file_ids, user_id)
             if not accessible_file_ids:
@@ -800,8 +794,7 @@ async def upload_pdf(req: Request, background_tasks: BackgroundTasks, file: Uplo
         await session.commit()
     
     # Offload embedding to arq worker (Task 5)
-    api_key = await _get_user_api_key(user_id, "gemini", req.app) or GEMINI_API_KEY
-    await req.app.state.arq_pool.enqueue_job("process_pdf_embedding", fid, api_key)
+    await req.app.state.arq_pool.enqueue_job("process_pdf_embedding", fid)
     
     background_tasks.add_task(sync_file_to_webui, path, file.filename)
     return {"file_id": fid, "status": "processing", "message": "File uploaded and enqueued for embedding."}
