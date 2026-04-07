@@ -522,6 +522,7 @@ async def list_models():
             {"id": "mistral-large-latest", "object": "model", "created": _ts, "owned_by": "mistral"},
             {"id": "mistral-small-latest", "object": "model", "created": _ts, "owned_by": "mistral"},
             {"id": "codestral-latest", "object": "model", "created": _ts, "owned_by": "mistral"},
+            {"id": "glm-4.7", "object": "model", "created": _ts, "owned_by": "nvidia"},
         ],
     }
 
@@ -624,18 +625,82 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
         provider, default_key = "mistral", MISTRAL_API_KEY
     elif "deepseek" in model_name:
         provider, default_key = "deepseek", DEEPSEEK_API_KEY
+    elif model_name == "glm-4.7":
+        provider, default_key = "nvidia", NVIDIA_API_KEY
 
     # Model alias mapping: public model ID → actual API model name
     _MODEL_ALIASES: dict = {
         "deepseek-v3.2-reasoning": "deepseek-reasoner",
         "deepseek-v3.2-non-reasoning": "deepseek-chat",
+        "glm-4.7": "z-ai/glm4.7",
     }
     api_model_name = _MODEL_ALIASES.get(model_name, model_name)
 
-    _PROVIDER_DISPLAY = {"gemini": "Gemini", "mistral": "Mistral", "deepseek": "DeepSeek"}
+    _PROVIDER_DISPLAY = {"gemini": "Gemini", "mistral": "Mistral", "deepseek": "DeepSeek", "nvidia": "NVIDIA"}
     api_key = await _get_user_api_key(user_id, provider, req.app) or default_key
     if not api_key:
         raise HTTPException(status_code=503, detail=f"{_PROVIDER_DISPLAY.get(provider, provider)} key missing")
+
+    if provider == "nvidia":
+        from openai import OpenAI as _OpenAIClient
+        nvidia_client = _OpenAIClient(
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key=api_key,
+        )
+        nvidia_messages = [{"role": m["role"], "content": m["content"]} for m in secure_messages]
+
+        if request.stream:
+            async def _nvidia_stream():
+                def _blocking_stream():
+                    return nvidia_client.chat.completions.create(
+                        model=api_model_name,
+                        messages=nvidia_messages,
+                        temperature=1,
+                        top_p=1,
+                        max_tokens=16384,
+                        extra_body={"chat_template_kwargs": {"enable_thinking": True, "clear_thinking": False}},
+                        stream=True,
+                    )
+                stream_iter = await asyncio.to_thread(_blocking_stream)
+                _nvidia_chat_id = f"chatcmpl-{uuid.uuid4().hex}"
+                _nvidia_ts = int(time.time())
+                for chunk in stream_iter:
+                    if not getattr(chunk, "choices", None) or len(chunk.choices) == 0:
+                        continue
+                    delta = chunk.choices[0].delta
+                    reasoning = getattr(delta, "reasoning_content", None)
+                    if reasoning:
+                        yield f'data: {json.dumps({"id": _nvidia_chat_id, "object": "chat.completion.chunk", "created": _nvidia_ts, "model": model_name, "choices": [{"index": 0, "delta": {"content": f"<think>{reasoning}</think>"}}]})}\n\n'
+                    if getattr(delta, "content", None) is not None:
+                        yield f'data: {json.dumps({"id": _nvidia_chat_id, "object": "chat.completion.chunk", "created": _nvidia_ts, "model": model_name, "choices": [{"index": 0, "delta": {"content": delta.content}}]})}\n\n'
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(_nvidia_stream(), media_type="text/event-stream")
+
+        def _nvidia_blocking():
+            return nvidia_client.chat.completions.create(
+                model=api_model_name,
+                messages=nvidia_messages,
+                temperature=1,
+                top_p=1,
+                max_tokens=16384,
+                extra_body={"chat_template_kwargs": {"enable_thinking": True, "clear_thinking": False}},
+                stream=False,
+            )
+        nvidia_resp = await asyncio.to_thread(_nvidia_blocking)
+        choice = nvidia_resp.choices[0]
+        reasoning = getattr(choice.message, "reasoning_content", None)
+        content = choice.message.content or ""
+        if reasoning:
+            content = f"<think>{reasoning}</think>\n{content}"
+        _nvidia_chat_id = f"chatcmpl-{uuid.uuid4().hex}"
+        _nvidia_ts = int(time.time())
+        return {
+            "id": _nvidia_chat_id,
+            "object": "chat.completion",
+            "created": _nvidia_ts,
+            "model": model_name,
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": content}}],
+        }
 
     if provider in ["mistral", "deepseek"]:
         base_url = "https://api.mistral.ai/v1" if provider == "mistral" else "https://api.deepseek.com/v1"
