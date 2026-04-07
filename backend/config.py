@@ -13,6 +13,17 @@ SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
+
+# Phase 3: LLM provider for the MaxClaw agent (OpenAI-compatible)
+REQUESTY_API_KEY = os.getenv("REQUESTY_API_KEY", "")
+REQUESTY_BASE_URL = os.getenv("REQUESTY_BASE_URL", "https://router.requesty.ai/v1")
+AGENT_MODEL_NAME = os.getenv("AGENT_MODEL_NAME", "MiniMax-M1")
+
+# Phase 4: JWT secret for dashboard magic-links
+DASHBOARD_JWT_SECRET = os.getenv("DASHBOARD_JWT_SECRET", "")
+
+# Workspace root directory for agent file operations
+WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "/app/workspace")
 CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3002").split(",")
 
 # Database settings

@@ -80,15 +80,18 @@ async def test_maxclaw_agent_model_has_correct_owner(client):
 # ─── Phase 2: Non-Streaming maxclaw-agent ─────────────────────────────────────
 
 async def test_maxclaw_agent_non_streaming(auth_client, mock_redis):
-    """Non-streaming maxclaw-agent request returns OpenAI-format JSON with weather info."""
-    resp = await auth_client.post(
-        CHAT_URL,
-        json={
-            "model": "maxclaw-agent",
-            "messages": [{"role": "user", "content": "Weather in Berlin"}],
-            "stream": False,
-        },
-    )
+    """Non-streaming maxclaw-agent request returns OpenAI-format JSON with content."""
+    with patch("agents.graph.build_supervisor_graph") as mock_graph:
+        from agents.dummy_weather import build_dummy_graph
+        mock_graph.return_value = build_dummy_graph()
+        resp = await auth_client.post(
+            CHAT_URL,
+            json={
+                "model": "maxclaw-agent",
+                "messages": [{"role": "user", "content": "Weather in Berlin"}],
+                "stream": False,
+            },
+        )
     assert resp.status_code == 200
     body = resp.json()
     assert "id" in body
@@ -104,14 +107,17 @@ async def test_maxclaw_agent_non_streaming(auth_client, mock_redis):
 
 async def test_maxclaw_agent_streaming_returns_sse(auth_client, mock_redis):
     """Streaming maxclaw-agent request returns valid SSE with data: lines and [DONE]."""
-    resp = await auth_client.post(
-        CHAT_URL,
-        json={
-            "model": "maxclaw-agent",
-            "messages": [{"role": "user", "content": "Weather in Munich"}],
-            "stream": True,
-        },
-    )
+    with patch("agents.graph.build_supervisor_graph") as mock_graph:
+        from agents.dummy_weather import build_dummy_graph
+        mock_graph.return_value = build_dummy_graph()
+        resp = await auth_client.post(
+            CHAT_URL,
+            json={
+                "model": "maxclaw-agent",
+                "messages": [{"role": "user", "content": "Weather in Munich"}],
+                "stream": True,
+            },
+        )
     assert resp.status_code == 200
     assert "text/event-stream" in resp.headers.get("content-type", "")
 
@@ -141,14 +147,17 @@ async def test_maxclaw_agent_streaming_returns_sse(auth_client, mock_redis):
 
 async def test_maxclaw_agent_streaming_contains_tool_calls(auth_client, mock_redis):
     """Streaming maxclaw-agent must emit tool_calls chunks for the get_weather tool."""
-    resp = await auth_client.post(
-        CHAT_URL,
-        json={
-            "model": "maxclaw-agent",
-            "messages": [{"role": "user", "content": "Weather in Tokyo"}],
-            "stream": True,
-        },
-    )
+    with patch("agents.graph.build_supervisor_graph") as mock_graph:
+        from agents.dummy_weather import build_dummy_graph
+        mock_graph.return_value = build_dummy_graph()
+        resp = await auth_client.post(
+            CHAT_URL,
+            json={
+                "model": "maxclaw-agent",
+                "messages": [{"role": "user", "content": "Weather in Tokyo"}],
+                "stream": True,
+            },
+        )
     assert resp.status_code == 200
     raw = resp.text
 
