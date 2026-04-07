@@ -2,14 +2,14 @@
 Embedding utilities for AI-Workhorse.
 
 Uses the NVIDIA NIM embeddings endpoint (OpenAI-compatible) with the
-nvidia/nv-embedqa-e5-v5 model (1024 dimensions, optimised for RAG).
+nvidia/llama-3.2-nv-embedqa-1b-v2 model (2048 dimensions, optimised for RAG).
 """
 from typing import Literal
 
 import httpx
 
 NVIDIA_EMBED_URL = "https://integrate.api.nvidia.com/v1/embeddings"
-NVIDIA_EMBED_MODEL = "nvidia/nv-embedqa-e5-v5"
+NVIDIA_EMBED_MODEL = "nvidia/llama-3.2-nv-embedqa-1b-v2"
 
 EmbedInputType = Literal["passage", "query"]
 
@@ -25,7 +25,7 @@ async def nvidia_embed(text: str, input_type: EmbedInputType, api_key: str) -> l
         api_key:    NVIDIA API key (from https://build.nvidia.com).
 
     Returns:
-        A list of 1024 floats representing the embedding.
+        A list of 2048 floats representing the embedding.
 
     Raises:
         httpx.HTTPStatusError: If the NVIDIA API returns a non-2xx response.

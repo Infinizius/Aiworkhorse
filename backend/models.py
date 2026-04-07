@@ -30,8 +30,8 @@ class FileEmbedding(Base):
     file_id = Column(String(36), ForeignKey("uploaded_files.id"), nullable=False)
     chunk_text = Column(Text, nullable=False)
     chunk_index = Column(Integer, nullable=False)
-    # 1024 dimensions: NVIDIA nv-embedqa-e5-v5
-    embedding = Column(Vector(1024), nullable=True)
+    # 2048 dimensions: NVIDIA llama-3.2-nv-embedqa-1b-v2
+    embedding = Column(Vector(2048), nullable=True)
 
     file = relationship("UploadedFile", back_populates="embeddings")
 

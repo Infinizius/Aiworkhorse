@@ -9,8 +9,8 @@ from main import _get_rag_context, app
 
 pytestmark = pytest.mark.anyio
 
-# 1024-dimensional mock embedding matching the NVIDIA nv-embedqa-e5-v5 output size.
-_MOCK_EMBEDDING = [0.1] * 1024
+# 2048-dimensional mock embedding matching the NVIDIA llama-3.2-nv-embedqa-1b-v2 output size.
+_MOCK_EMBEDDING = [0.1] * 2048
 
 
 def _headers(user_id: str) -> dict[str, str]:
