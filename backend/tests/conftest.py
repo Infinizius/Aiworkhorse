@@ -21,6 +21,7 @@ from httpx import ASGITransport, AsyncClient
 # where the real API_KEY env var may already be set.
 os.environ["API_KEY"] = "workhorse-test"
 os.environ["GEMINI_API_KEY"] = os.environ.get("GEMINI_API_KEY", "test-gemini-key-not-real")
+os.environ["NVIDIA_API_KEY"] = os.environ.get("NVIDIA_API_KEY", "test-nvidia-key-not-real")
 os.environ["DATABASE_URL"] = os.environ.get(
     "DATABASE_URL",
     "postgresql+asyncpg://workhorse:test@localhost:5432/test_db",

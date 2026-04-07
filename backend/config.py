@@ -10,6 +10,7 @@ ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
 WEBUI_API_KEY = os.getenv("WEBUI_API_KEY", "")
 WEBUI_INTERNAL_URL = os.getenv("WEBUI_INTERNAL_URL", "http://ai-workhorse-webui:8080")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
 CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3002").split(",")
@@ -38,6 +39,9 @@ def validate_config():
     
     if not GEMINI_API_KEY:
         critical_missing.append("GEMINI_API_KEY")
+
+    if not NVIDIA_API_KEY:
+        critical_missing.append("NVIDIA_API_KEY")
     
     # Fail-Fast on missing Encryption Key for Phase 2
     if not ENCRYPTION_KEY:

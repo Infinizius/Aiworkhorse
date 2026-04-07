@@ -9,6 +9,9 @@ from main import _get_rag_context, app
 
 pytestmark = pytest.mark.anyio
 
+# 2048-dimensional mock embedding matching the NVIDIA llama-3.2-nv-embedqa-1b-v2 output size.
+_MOCK_EMBEDDING = [0.1] * 2048
+
 
 def _headers(user_id: str) -> dict[str, str]:
     return {
@@ -153,7 +156,7 @@ async def test_rag_context_ignores_unowned_file_ids():
     app.state.db_session_factory = _SessionFactory(session)
 
     try:
-        with patch("main.asyncio.to_thread", new=AsyncMock(return_value=SimpleNamespace(embeddings=[SimpleNamespace(values=[0.1, 0.2])]))):
+        with patch("main.nvidia_embed", new=AsyncMock(return_value=_MOCK_EMBEDDING)):
             rag_context = await _get_rag_context(
                 ["owned-file", "foreign-file"],
                 "Summarize",
@@ -174,7 +177,7 @@ async def test_rag_context_returns_empty_when_user_has_no_access():
     app.state.db_session_factory = _SessionFactory(session)
 
     try:
-        with patch("main.asyncio.to_thread", new=AsyncMock(return_value=SimpleNamespace(embeddings=[SimpleNamespace(values=[0.1, 0.2])]))):
+        with patch("main.nvidia_embed", new=AsyncMock(return_value=_MOCK_EMBEDDING)):
             rag_context = await _get_rag_context(
                 ["foreign-file"],
                 "Summarize",
@@ -195,7 +198,7 @@ async def test_rag_context_returns_empty_without_requesting_user(user_id):
     app.state.db_session_factory = _SessionFactory(session)
 
     try:
-        with patch("main.asyncio.to_thread", new=AsyncMock(return_value=SimpleNamespace(embeddings=[SimpleNamespace(values=[0.1, 0.2])]))):
+        with patch("main.nvidia_embed", new=AsyncMock(return_value=_MOCK_EMBEDDING)):
             rag_context = await _get_rag_context(
                 ["owned-file"],
                 "Summarize",
