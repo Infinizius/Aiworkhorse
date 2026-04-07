@@ -106,9 +106,29 @@ def verify_dashboard_jwt(token: str) -> str:
 
 # ─── Path-safe workspace helper ──────────────────────────────────────────────
 
+import re
+
+_SAFE_USER_ID_RE = re.compile(r"^[a-zA-Z0-9@._+-]+$")
+
+
+def _sanitize_user_id(user_id: str) -> str:
+    """Validate that a user_id is safe for filesystem use.
+
+    Rejects IDs containing path separators, '..' sequences, or other
+    dangerous characters.  Returns the sanitized user_id or raises
+    HTTPException(400).
+    """
+    if not user_id or ".." in user_id or "/" in user_id or "\\" in user_id:
+        raise HTTPException(status_code=400, detail="Invalid user identity")
+    if not _SAFE_USER_ID_RE.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user identity")
+    return user_id
+
+
 def _safe_workspace_path(user_id: str, relative_path: str) -> str:
     """Resolve and validate a path inside the user's workspace."""
-    base_dir = os.path.abspath(os.path.join(WORKSPACE_ROOT, user_id))
+    safe_uid = _sanitize_user_id(user_id)
+    base_dir = os.path.abspath(os.path.join(WORKSPACE_ROOT, safe_uid))
     target = os.path.abspath(os.path.join(base_dir, relative_path))
 
     if not target.startswith(base_dir + os.sep) and target != base_dir:
@@ -156,7 +176,8 @@ async def serve_dashboard(token: str = Query(..., description="JWT access token"
 async def list_workspace_files(token: str = Query(...)):
     """List all files in the user's workspace."""
     user_id = verify_dashboard_jwt(token)
-    base_dir = os.path.abspath(os.path.join(WORKSPACE_ROOT, user_id))
+    safe_uid = _sanitize_user_id(user_id)
+    base_dir = os.path.abspath(os.path.join(WORKSPACE_ROOT, safe_uid))
 
     if not os.path.isdir(base_dir):
         return {"files": [], "total": 0}
@@ -214,6 +235,9 @@ async def delete_workspace_file_endpoint(file_path: str, token: str = Query(...)
 
 def _render_dashboard_html(user_id: str, token: str) -> str:
     """Render the workspace dashboard as a single HTML page with Tailwind CSS."""
+    # Sanitize token for safe JS embedding: JWTs only contain [A-Za-z0-9._-]
+    safe_token = _escape_js_string(token)
+    safe_user = _escape_html(user_id)
     return f"""<!DOCTYPE html>
 <html lang="de" class="dark">
 <head>
@@ -234,7 +258,7 @@ def _render_dashboard_html(user_id: str, token: str) -> str:
                 <span class="text-2xl">&#128218;</span>
                 <h1 class="text-xl font-bold text-gray-100">AI-Workhorse Workspace</h1>
             </div>
-            <span class="text-sm text-gray-400">{_escape_html(user_id)}</span>
+            <span class="text-sm text-gray-400">{safe_user}</span>
         </div>
     </nav>
 
@@ -256,7 +280,7 @@ def _render_dashboard_html(user_id: str, token: str) -> str:
     </main>
 
     <script>
-        const TOKEN = "{token}";
+        const TOKEN = "{safe_token}";
         const API = "/v1/workspace/files?token=" + TOKEN;
 
         async function loadFiles() {{
@@ -266,7 +290,7 @@ def _render_dashboard_html(user_id: str, token: str) -> str:
                 const container = document.getElementById("file-list");
 
                 if (data.total === 0) {{
-                    container.innerHTML = '<div class="text-center py-12"><p class="text-gray-500 text-lg">Noch keine Dateien im Workspace.</p><p class="text-gray-600 text-sm mt-2">Der Agent erstellt hier Dateien f\\u00fcr dich.</p></div>';
+                    container.innerHTML = '<div class="text-center py-12"><p class="text-gray-500 text-lg">Noch keine Dateien im Workspace.</p><p class="text-gray-600 text-sm mt-2">Der Agent erstellt hier Dateien f\u00fcr dich.</p></div>';
                     return;
                 }}
 
@@ -281,7 +305,7 @@ def _render_dashboard_html(user_id: str, token: str) -> str:
                         </div>
                         <div class="flex gap-2">
                             <button onclick="viewFile('${{f.path}}')" class="px-3 py-1 text-sm rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition">Ansehen</button>
-                            <button onclick="deleteFile('${{f.path}}')" class="px-3 py-1 text-sm rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 transition">L\\u00f6schen</button>
+                            <button onclick="deleteFile('${{f.path}}')" class="px-3 py-1 text-sm rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 transition">L\u00f6schen</button>
                         </div>
                     </div>
                 `).join("");
@@ -304,7 +328,7 @@ def _render_dashboard_html(user_id: str, token: str) -> str:
         }}
 
         async function deleteFile(path) {{
-            if (!confirm("Datei '" + path + "' wirklich l\\u00f6schen?")) return;
+            if (!confirm("Datei '" + path + "' wirklich l\u00f6schen?")) return;
             const res = await fetch("/v1/workspace/files/" + encodeURIComponent(path) + "?token=" + TOKEN, {{ method: "DELETE" }});
             if (res.ok) loadFiles();
             else alert("L\\u00f6schen fehlgeschlagen.");
@@ -339,3 +363,14 @@ def _escape_html(text: str) -> str:
         .replace('"', "&quot;")
         .replace("'", "&#x27;")
     )
+
+
+def _escape_js_string(text: str) -> str:
+    """Escape a string for safe embedding in a JavaScript string literal.
+
+    Only allows characters that are safe in a JS string context:
+    alphanumeric, dot, hyphen, underscore (covers JWT base64url format).
+    Any other character is stripped.
+    """
+    import re as _re
+    return _re.sub(r"[^A-Za-z0-9._-]", "", text)
