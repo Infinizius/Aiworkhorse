@@ -237,6 +237,9 @@ _MSG_MISSING_API_KEY = "GEMINI_API_KEY is not configured."
 _MSG_API_ERROR = "An error occurred while processing your request."
 _LOG_CONTENT_MAX_LEN = 200
 
+_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+_NVIDIA_CHAT_TEMPLATE_KWARGS = {"enable_thinking": True, "clear_thinking": False}
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async def _get_user_api_key(user_id: str, provider: str, app_instance: FastAPI) -> Optional[str]:
@@ -644,10 +647,13 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
     if provider == "nvidia":
         from openai import OpenAI as _OpenAIClient
         nvidia_client = _OpenAIClient(
-            base_url="https://integrate.api.nvidia.com/v1",
+            base_url=_NVIDIA_BASE_URL,
             api_key=api_key,
         )
         nvidia_messages = [{"role": m["role"], "content": m["content"]} for m in secure_messages]
+
+        def _sanitize_reasoning(text: str) -> str:
+            return text.replace("</think>", "<\\/think>")
 
         if request.stream:
             async def _nvidia_stream():
@@ -658,7 +664,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
                         temperature=1,
                         top_p=1,
                         max_tokens=16384,
-                        extra_body={"chat_template_kwargs": {"enable_thinking": True, "clear_thinking": False}},
+                        extra_body={"chat_template_kwargs": _NVIDIA_CHAT_TEMPLATE_KWARGS},
                         stream=True,
                     )
                 stream_iter = await asyncio.to_thread(_blocking_stream)
@@ -670,7 +676,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
                     delta = chunk.choices[0].delta
                     reasoning = getattr(delta, "reasoning_content", None)
                     if reasoning:
-                        yield f'data: {json.dumps({"id": _nvidia_chat_id, "object": "chat.completion.chunk", "created": _nvidia_ts, "model": model_name, "choices": [{"index": 0, "delta": {"content": f"<think>{reasoning}</think>"}}]})}\n\n'
+                        yield f'data: {json.dumps({"id": _nvidia_chat_id, "object": "chat.completion.chunk", "created": _nvidia_ts, "model": model_name, "choices": [{"index": 0, "delta": {"content": f"<think>{_sanitize_reasoning(reasoning)}</think>"}}]})}\n\n'
                     if getattr(delta, "content", None) is not None:
                         yield f'data: {json.dumps({"id": _nvidia_chat_id, "object": "chat.completion.chunk", "created": _nvidia_ts, "model": model_name, "choices": [{"index": 0, "delta": {"content": delta.content}}]})}\n\n'
                 yield "data: [DONE]\n\n"
@@ -683,7 +689,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
                 temperature=1,
                 top_p=1,
                 max_tokens=16384,
-                extra_body={"chat_template_kwargs": {"enable_thinking": True, "clear_thinking": False}},
+                extra_body={"chat_template_kwargs": _NVIDIA_CHAT_TEMPLATE_KWARGS},
                 stream=False,
             )
         nvidia_resp = await asyncio.to_thread(_nvidia_blocking)
@@ -691,7 +697,7 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
         reasoning = getattr(choice.message, "reasoning_content", None)
         content = choice.message.content or ""
         if reasoning:
-            content = f"<think>{reasoning}</think>\n{content}"
+            content = f"<think>{_sanitize_reasoning(reasoning)}</think>\n{content}"
         _nvidia_chat_id = f"chatcmpl-{uuid.uuid4().hex}"
         _nvidia_ts = int(time.time())
         return {
