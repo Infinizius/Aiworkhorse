@@ -26,7 +26,7 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from models import Base, FileEmbedding, GoalTask as GoalTaskModel, UserConfig, UserVault, UploadedFile as UploadedFileModel
+from models import Base, CoreMemory, FileEmbedding, GoalTask as GoalTaskModel, UserConfig, UserVault, UploadedFile as UploadedFileModel
 from security_utils import decrypt_key, encrypt_key
 from embed_utils import nvidia_embed
 
@@ -35,6 +35,7 @@ from config import (
     API_KEY, GEMINI_API_KEY, NVIDIA_API_KEY, ENCRYPTION_KEY, SERPER_API_KEY, DEEPSEEK_API_KEY,
     MISTRAL_API_KEY, WEBUI_API_KEY, WEBUI_INTERNAL_URL, DATABASE_URL,
     REACTIVE_MAX_ITERATIONS, GOAL_MAX_ITERATIONS, CORS_ALLOW_ORIGINS,
+    WORKSPACE_ROOT,
     validate_config
 )
 
@@ -194,6 +195,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Phase 4: Dashboard router
+from dashboard import router as dashboard_router
+app.include_router(dashboard_router)
 
 
 UPLOAD_DIR = os.path.abspath("uploads")
@@ -651,11 +656,54 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
     model_name = request.model or "gemini-3-flash-preview"
     is_goal_engine_request = _is_goal_engine_request(req)
 
-    # ── MaxClaw Agent route (Phase 2: LangGraph → OpenAI SSE) ──
+    # ── MaxClaw Agent route (Phase 3: LangGraph Supervisor with Core Memory) ──
     if model_name == "maxclaw-agent":
         from langchain_core.messages import HumanMessage as LC_HumanMessage, SystemMessage as LC_SystemMessage, AIMessage as LC_AIMessage
-        from agents.dummy_weather import build_dummy_graph
+        from agents.graph import build_supervisor_graph
         from core.sse_adapter import langgraph_to_openai_sse
+        from dashboard import create_dashboard_jwt
+
+        # Phase 4: Intercept /workspace command
+        last_user_msg = next(
+            (m["content"] for m in reversed(secure_messages) if m["role"] == "user"),
+            "",
+        )
+        if last_user_msg.strip().lower() == "/workspace":
+            token = create_dashboard_jwt(user_id)
+            base_url = str(req.base_url).rstrip("/")
+            dashboard_url = f"{base_url}/dashboard?token={token}"
+            import time as _time
+            _agent_chat_id = f"chatcmpl-{uuid.uuid4().hex}"
+            return {
+                "id": _agent_chat_id,
+                "object": "chat.completion",
+                "created": int(_time.time()),
+                "model": model_name,
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": (
+                            f"🗂️ **Dein Workspace ist bereit!**\n\n"
+                            f"[Workspace öffnen]({dashboard_url})\n\n"
+                            f"Der Link ist 1 Stunde gültig."
+                        ),
+                    },
+                }],
+            }
+
+        # Phase 3: Fetch core_memory for this user
+        core_memory = ""
+        try:
+            async with req.app.state.db_session_factory() as session:
+                res = await session.execute(
+                    select(CoreMemory).where(CoreMemory.user_id == user_id)
+                )
+                mem = res.scalar_one_or_none()
+                if mem:
+                    core_memory = mem.content or ""
+        except Exception as exc:
+            logger.warning(f"Failed to load core memory for {user_id}: {exc}")
 
         lc_messages = []
         for msg in secure_messages:
@@ -668,22 +716,51 @@ async def chat_completions_proxy(request: ChatCompletionRequest, req: Request, u
             elif role == "assistant":
                 lc_messages.append(LC_AIMessage(content=content))
 
-        graph = build_dummy_graph()
+        graph = build_supervisor_graph()
 
         if request.stream:
             return StreamingResponse(
-                langgraph_to_openai_sse(graph, lc_messages, model_name),
+                langgraph_to_openai_sse(
+                    graph, lc_messages, model_name,
+                    extra_state={"user_id": user_id, "core_memory": core_memory},
+                ),
                 media_type="text/event-stream",
             )
 
         # Non-streaming: collect all events and return a single response
         import time as _time
-        result = await graph.ainvoke({"messages": lc_messages})
+        result = await graph.ainvoke({
+            "messages": lc_messages,
+            "user_id": user_id,
+            "core_memory": core_memory,
+        })
         last_ai = next(
             (m for m in reversed(result["messages"]) if hasattr(m, "content") and m.content),
             None,
         )
         content = last_ai.content if last_ai else ""
+
+        # Phase 3: Handle core_memory updates from tool results
+        from agents.tools import CORE_MEMORY_MARKER_PREFIX
+        for msg in result["messages"]:
+            if hasattr(msg, "content") and isinstance(msg.content, str) and msg.content.startswith(CORE_MEMORY_MARKER_PREFIX):
+                try:
+                    payload = json.loads(msg.content[len(CORE_MEMORY_MARKER_PREFIX):])
+                    mem_user_id = payload["user_id"]
+                    mem_content = payload["content"]
+                    async with req.app.state.db_session_factory() as session:
+                        res = await session.execute(
+                            select(CoreMemory).where(CoreMemory.user_id == mem_user_id)
+                        )
+                        existing = res.scalar_one_or_none()
+                        if existing:
+                            existing.content = mem_content
+                        else:
+                            session.add(CoreMemory(user_id=mem_user_id, content=mem_content))
+                        await session.commit()
+                except Exception as exc:
+                    logger.warning(f"Failed to update core memory: {exc}")
+
         _agent_chat_id = f"chatcmpl-{uuid.uuid4().hex}"
         _agent_ts = int(_time.time())
         return {

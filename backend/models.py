@@ -62,6 +62,19 @@ class UserVault(Base):
     )
 
 
+class CoreMemory(Base):
+    __tablename__ = "core_memories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(255), nullable=False, unique=True, index=True)
+    content = Column(Text, nullable=False, default="")
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 class GoalTask(Base):
     __tablename__ = "goal_tasks"
 

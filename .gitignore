@@ -10,3 +10,5 @@ backend/logs/
 __pycache__/
 *.pyc
 *.pyo
+node_modules/
+.next/

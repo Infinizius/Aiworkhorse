@@ -42,6 +42,7 @@ async def langgraph_to_openai_sse(
     graph,
     input_messages: list,
     model_name: str = "maxclaw-agent",
+    extra_state: dict | None = None,
 ) -> AsyncIterator[str]:
     """
     Run a compiled LangGraph and yield OpenAI-compatible SSE chunks.
@@ -55,6 +56,7 @@ async def langgraph_to_openai_sse(
         graph: A compiled LangGraph StateGraph.
         input_messages: List of LangChain BaseMessage objects for the input.
         model_name: The model name to include in SSE chunks.
+        extra_state: Additional state fields to pass to the graph (e.g. user_id, core_memory).
 
     Yields:
         SSE-formatted strings ("data: {...}\\n\\n").
@@ -65,11 +67,16 @@ async def langgraph_to_openai_sse(
     # Send the initial role chunk
     yield f"data: {_make_chunk_json(chat_id, created, model_name, {'role': 'assistant'})}\n\n"
 
+    # Build input state
+    input_state = {"messages": input_messages}
+    if extra_state:
+        input_state.update(extra_state)
+
     # Track tool call indices for proper OpenAI formatting
     tool_call_index = 0
 
     async for event in graph.astream_events(
-        {"messages": input_messages},
+        input_state,
         version="v2",
     ):
         kind = event.get("event", "")
