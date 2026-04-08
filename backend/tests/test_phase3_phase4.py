@@ -414,3 +414,224 @@ class TestSupervisorGraph:
         node_names = list(graph.nodes.keys())
         assert "supervisor" in node_names
         assert "tools" in node_names
+
+
+# ─── Phase 3: Web Interaction Tools ──────────────────────────────────────────
+
+class TestVisitWebpage:
+    """Tests for the visit_webpage tool."""
+
+    def test_visit_webpage_returns_content(self):
+        """visit_webpage must return page text for a successful HTTP response."""
+        from agents.tools import visit_webpage
+        from unittest.mock import MagicMock, patch
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"content-type": "text/html"}
+        mock_resp.text = "<html><body><p>Hello World</p></body></html>"
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.return_value = mock_resp
+
+        with patch("agents.tools.httpx.Client", return_value=mock_client):
+            result = visit_webpage.invoke({"url": "http://localhost:3000"})
+
+        assert "HTTP 200" in result
+        assert "Hello World" in result
+
+    def test_visit_webpage_json_response(self):
+        """visit_webpage returns raw body for non-HTML responses."""
+        from agents.tools import visit_webpage
+        from unittest.mock import MagicMock, patch
+        import json
+
+        payload = json.dumps({"status": "ok", "version": "1.0"})
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"content-type": "application/json"}
+        mock_resp.text = payload
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.return_value = mock_resp
+
+        with patch("agents.tools.httpx.Client", return_value=mock_client):
+            result = visit_webpage.invoke({"url": "http://localhost:8000/health"})
+
+        assert "HTTP 200" in result
+        assert '"status": "ok"' in result
+
+    def test_visit_webpage_handles_network_error(self):
+        """visit_webpage returns an error string when the request fails."""
+        from agents.tools import visit_webpage
+        from unittest.mock import patch
+        import httpx
+
+        with patch("agents.tools.httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.side_effect = httpx.ConnectError("refused")
+            result = visit_webpage.invoke({"url": "http://localhost:9999"})
+
+        assert "Error" in result
+
+    def test_visit_webpage_truncates_long_content(self):
+        """visit_webpage must truncate responses longer than 5000 chars."""
+        from agents.tools import visit_webpage
+        from unittest.mock import MagicMock, patch
+
+        long_text = "A" * 6000
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"content-type": "application/json"}
+        mock_resp.text = long_text
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get.return_value = mock_resp
+
+        with patch("agents.tools.httpx.Client", return_value=mock_client):
+            result = visit_webpage.invoke({"url": "http://localhost:3000/big"})
+
+        assert "truncated" in result
+        # Result must not exceed status line + 5000 chars + truncation marker
+        assert len(result) < 6100
+
+
+class TestHttpRequest:
+    """Tests for the http_request tool."""
+
+    def test_http_request_get(self):
+        """http_request GET must return status code and body."""
+        from agents.tools import http_request
+        from unittest.mock import MagicMock, patch
+        import json
+
+        payload = json.dumps({"healthy": True})
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {"content-type": "application/json"}
+        mock_resp.text = payload
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.request.return_value = mock_resp
+
+        with patch("agents.tools.httpx.Client", return_value=mock_client):
+            result = http_request.invoke({
+                "url": "http://localhost:8000/health",
+                "method": "GET",
+            })
+
+        assert "HTTP 200" in result
+        assert "GET" in result
+        assert '"healthy": true' in result
+
+    def test_http_request_post_with_body(self):
+        """http_request POST with JSON body must include body in the request."""
+        from agents.tools import http_request
+        from unittest.mock import MagicMock, patch, call
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 201
+        mock_resp.headers = {"content-type": "application/json"}
+        mock_resp.text = '{"id": 42}'
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.request.return_value = mock_resp
+
+        with patch("agents.tools.httpx.Client", return_value=mock_client):
+            result = http_request.invoke({
+                "url": "http://localhost:3000/api/items",
+                "method": "POST",
+                "headers": {"Content-Type": "application/json"},
+                "body": '{"name": "test"}',
+            })
+
+        assert "HTTP 201" in result
+        assert "POST" in result
+        mock_client.request.assert_called_once()
+        _, kwargs = mock_client.request.call_args
+        assert kwargs.get("content") == '{"name": "test"}'
+
+    def test_http_request_normalises_method_to_uppercase(self):
+        """http_request must accept lowercase method names and normalise them."""
+        from agents.tools import http_request
+        from unittest.mock import MagicMock, patch
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {}
+        mock_resp.text = "OK"
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.request.return_value = mock_resp
+
+        with patch("agents.tools.httpx.Client", return_value=mock_client):
+            result = http_request.invoke({"url": "http://localhost/ping", "method": "get"})
+
+        assert "GET" in result
+
+    def test_http_request_handles_network_error(self):
+        """http_request returns an error string when the request fails."""
+        from agents.tools import http_request
+        from unittest.mock import patch
+        import httpx
+
+        with patch("agents.tools.httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.side_effect = httpx.ConnectError("refused")
+            result = http_request.invoke({"url": "http://localhost:9999/api"})
+
+        assert "Error" in result
+
+    def test_http_request_truncates_long_body(self):
+        """http_request must truncate response bodies longer than 5000 chars."""
+        from agents.tools import http_request
+        from unittest.mock import MagicMock, patch
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.headers = {}
+        mock_resp.text = "B" * 6000
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.request.return_value = mock_resp
+
+        with patch("agents.tools.httpx.Client", return_value=mock_client):
+            result = http_request.invoke({"url": "http://localhost/big", "method": "GET"})
+
+        assert "truncated" in result
+
+
+class TestAgentToolsRegistration:
+    """Verify that the new tools are properly registered in AGENT_TOOLS."""
+
+    def test_visit_webpage_in_agent_tools(self):
+        """visit_webpage must be present in AGENT_TOOLS."""
+        from agents.tools import AGENT_TOOLS
+        names = [t.name for t in AGENT_TOOLS]
+        assert "visit_webpage" in names
+
+    def test_http_request_in_agent_tools(self):
+        """http_request must be present in AGENT_TOOLS."""
+        from agents.tools import AGENT_TOOLS
+        names = [t.name for t in AGENT_TOOLS]
+        assert "http_request" in names
+
+    def test_all_original_tools_still_present(self):
+        """Existing tools must not have been removed from AGENT_TOOLS."""
+        from agents.tools import AGENT_TOOLS
+        names = [t.name for t in AGENT_TOOLS]
+        for expected in ("web_search", "read_workspace_file", "write_workspace_file", "update_core_memory"):
+            assert expected in names, f"Tool '{expected}' is missing from AGENT_TOOLS"
+

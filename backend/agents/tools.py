@@ -3,6 +3,8 @@ agents/tools.py – LangGraph-compatible tools for the MaxClaw supervisor agent.
 
 Tools:
   - web_search: Search the web via DuckDuckGo (or Serper if configured).
+  - visit_webpage: Fetch any URL (including local ports) and return readable text.
+  - http_request: Send HTTP requests (GET/POST/…) to URLs for integration checks.
   - read_workspace_file: Read a file from the user's workspace.
   - write_workspace_file: Write a file to the user's workspace (path-traversal safe).
   - update_core_memory: Append or replace the user's core memory in PostgreSQL.
@@ -115,6 +117,103 @@ def web_search(query: str) -> str:
 
 
 @tool
+def visit_webpage(url: str) -> str:
+    """Visit a webpage or web app and return its content as readable plain text.
+
+    Works with any URL, including local web apps running on a specific port
+    (e.g. http://localhost:3000, http://127.0.0.1:8080/api/health).
+    Use this to inspect web applications, verify that a service is running,
+    and read page content for integration testing.
+
+    Returns: HTTP status line followed by the page text (truncated at 5000 chars).
+    """
+    from html.parser import HTMLParser
+
+    class _TextExtractor(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.text_parts: list[str] = []
+            self._skip = False
+
+        def handle_starttag(self, tag, attrs):
+            if tag in ("script", "style"):
+                self._skip = True
+
+        def handle_endtag(self, tag):
+            if tag in ("script", "style"):
+                self._skip = False
+
+        def handle_data(self, data):
+            if not self._skip and data.strip():
+                self.text_parts.append(data.strip())
+
+    try:
+        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
+            resp = client.get(
+                url,
+                headers={"User-Agent": "AI-Workhorse/1.0 (MaxClaw Integration Checker)"},
+            )
+            content_type = resp.headers.get("content-type", "")
+            if "text/html" in content_type or not content_type.strip():
+                parser = _TextExtractor()
+                parser.feed(resp.text)
+                text = "\n".join(parser.text_parts)
+            else:
+                text = resp.text
+
+            if len(text) > 5000:
+                text = text[:5000] + "\n[... content truncated ...]"
+
+            return f"HTTP {resp.status_code} {url}\n\n{text}"
+    except Exception as exc:
+        return f"Error visiting '{url}': {exc}"
+
+
+@tool
+def http_request(
+    url: str,
+    method: str = "GET",
+    headers: Optional[dict] = None,
+    body: Optional[str] = None,
+) -> str:
+    """Send an HTTP request to a URL and return the full response.
+
+    Use this to interact with REST APIs, check service health endpoints,
+    submit forms, and test integrations. Works with local services as well
+    as public URLs (e.g. http://localhost:8000/health, https://api.example.com).
+
+    Args:
+        url:     The target URL.
+        method:  HTTP method – GET, POST, PUT, DELETE, PATCH, HEAD (default: GET).
+        headers: Optional dict of additional request headers.
+        body:    Optional request body as a string (e.g. JSON payload).
+
+    Returns: HTTP status code, response headers, and response body
+             (truncated at 5000 chars).
+    """
+    method = method.upper()
+    try:
+        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
+            resp = client.request(
+                method=method,
+                url=url,
+                headers=headers or {},
+                content=body,
+            )
+            response_text = resp.text
+            if len(response_text) > 5000:
+                response_text = response_text[:5000] + "\n[... content truncated ...]"
+
+            return (
+                f"HTTP {resp.status_code} {method} {url}\n"
+                f"Headers: {dict(resp.headers)}\n\n"
+                f"{response_text}"
+            )
+    except Exception as exc:
+        return f"Error making {method} request to '{url}': {exc}"
+
+
+@tool
 def read_workspace_file(user_id: str, file_path: str) -> str:
     """Read a file from the user's workspace. Returns the file content as text."""
     try:
@@ -175,4 +274,11 @@ def update_core_memory(user_id: str, memory_content: str) -> str:
 CORE_MEMORY_MARKER_PREFIX = "__CORE_MEMORY_UPDATE__:"
 
 # All tools available to the supervisor
-AGENT_TOOLS = [web_search, read_workspace_file, write_workspace_file, update_core_memory]
+AGENT_TOOLS = [
+    web_search,
+    visit_webpage,
+    http_request,
+    read_workspace_file,
+    write_workspace_file,
+    update_core_memory,
+]
