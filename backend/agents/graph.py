@@ -56,6 +56,11 @@ Du hilfst dem Nutzer mit Recherchen, Dateimanagement und Wissensaufbau.
 
 Verfügbare Tools:
 - web_search: Durchsuche das Internet nach Informationen.
+- visit_webpage: Besuche eine beliebige URL (auch lokale Ports wie http://localhost:3000)
+  und lese den Seiteninhalt als Text. Ideal zum Prüfen von laufenden Web-Apps und Integrationen.
+- http_request: Sende HTTP-Anfragen (GET, POST, PUT, DELETE, …) an beliebige URLs.
+  Unterstützt lokale Dienste (z. B. http://localhost:8000/health) und öffentliche APIs.
+  Gibt Statuscode, Header und Body zurück – perfekt für Integrationstests.
 - read_workspace_file: Lies eine Datei aus dem Workspace des Nutzers.
 - write_workspace_file: Schreibe eine Datei in den Workspace des Nutzers.
 - update_core_memory: Aktualisiere dein dauerhaftes Gedächtnis über den Nutzer.
